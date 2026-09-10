@@ -1,0 +1,29 @@
+# Driving Rig scene materials
+newmtl Ground
+Kd 0.3000 0.3600 0.3100
+Ka 0 0 0
+Ks 0 0 0
+newmtl SpeedBump0
+Kd 0.2200 0.3400 0.5200
+Ka 0 0 0
+Ks 0 0 0
+newmtl SpeedBump1
+Kd 0.2200 0.3400 0.5200
+Ka 0 0 0
+Ks 0 0 0
+newmtl SpeedBump2
+Kd 0.2200 0.3400 0.5200
+Ka 0 0 0
+Ks 0 0 0
+newmtl Ramp
+Kd 0.2200 0.3400 0.5200
+Ka 0 0 0
+Ks 0 0 0
+newmtl Mark0
+Kd 0.9500 0.9500 0.9500
+Ka 0 0 0
+Ks 0 0 0
+newmtl Mark1
+Kd 0.9500 0.9500 0.9500
+Ka 0 0 0
+Ks 0 0 0

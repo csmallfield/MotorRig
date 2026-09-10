@@ -1,11 +1,10 @@
-# Driving Rig — v0.3.0
+# Driving Rig — v0.5.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
 
-**Done:** Phase 1 (1.1–1.5) and Phase 2 (2.1–2.4): drive, record, browse, replay, export.
-**Also:** take format v2 (columnar + gzip, ~11× smaller) and the Python reader the Maya
-importer builds on. **Next:** Phase 3 — rig builder, curve writer, spin solve.
+**Done:** all three phases — drive, record, browse/replay/export in Godot; import onto a
+proxy rig in Maya 2026 with spin re-solve.
 
 ## Quick start
 
@@ -45,8 +44,69 @@ Tab / LB opens it. The car parks, recording is blocked, and the chase cam follow
 - **Delete** moves the take and its thumbnail to the recycle bin.
 - **Close the browser with a ghost playing** and it keeps looping while you drive — for
   re-shooting a take against the previous one.
+- **Export Scene...** writes the drivable scene (terrain, props, marks — or an imported set) as
+  OBJ files into `<folder>/scene_<ground name>/`: one OBJ per object, `scene.mtl`, and
+  `scene.json`. World space, **centimetres, Y-up** — the same space as the take rigs, so it
+  lines up with no manual offset. ~2 s and ~21 MB for the default 800 m terrain.
 
 Thumbnails are a top-down path plot (10 m grid, colour = speed, green IN, red OUT).
+
+## Maya (2026)
+
+**Install:** drag `maya/install_driving_rig.py` into a Maya viewport. You get a **Driving Rig**
+menu and a **DrivingRig** shelf (Import, Solve) straight away, and a small marked block in your
+`userSetup.py` brings the menu back each session. *Driving Rig ▸ Uninstall* removes all of it.
+After updating the project, drop the installer again to reload the code without restarting.
+No numpy or pip needed.
+
+**Scene geometry:** *Driving Rig ▸ Import Scene Geo...* (or the Scene shelf button) and pick the
+`scene.json` from an export. Meshes are built straight from the files through the API, so they
+land correctly in any scene units and in Z-up scenes (plain *File ▸ Import* of the OBJs also
+works in a normal cm, Y-up scene). Each object gets a lambert in its Godot colour and a
+`drvCollides` attribute — `False` on road paint, which the wheels drive over. Importing a take
+and a scene made on **different ground** puts a warning in the report: that mismatch reads as
+floating or sunken wheels.
+
+**Import:** *Driving Rig ▸ Import Take…* (or the shelf). Pick a `.json.gz` exported from the
+take browser. Defaults: 24 fps, IN on frame 1001 — both remembered once changed. Options:
+set scene frame rate, set playback range (take + handles), import the take's camera, contact
+locators, solve spin (or use the recorded spin as-is). A spin-check report pops up afterwards.
+
+Each import lives in its own namespace (`drv_<name>:`), curves included, so several takes can
+share a scene and *Delete Rig…* removes one cleanly.
+
+```
+drv_hero:root                  move/rotate the whole take from here
+  chassis                      translate + rotate (rotate order zxy — see below)
+    body_geo, nose_geo
+    wheel_FL_steer → wheel_FL_susp → wheel_FL_spin → wheel_FL_geo      ×4
+  contacts/contact_FL          world contact point; grounded / slipLong / slipLat for FX
+  take_cam                     the camera you drove with (vertical-fit, focal from Godot's fov)
+```
+
+- **Rotate order zxy** on chassis and camera: heading is the outermost axis, so donuts and
+  long turns never approach gimbal lock (Maya's default xyz would, at every ±90° of heading).
+  Euler curves are unrolled for continuity — no flips, heading accumulates past 360°.
+- **Re-solve Spin** after you retime or offset the car. It measures each wheel's travel from
+  its world matrix in the scene (so root moves, retimes and constraints all count) and adds
+  the take's recorded slip distance, so lock-ups, wheelspin and airborne spin survive.
+  Retime the *whole* rig for exact results; retiming only the chassis still rolls correctly,
+  with slip events staying at their original timing.
+- **Check Spin** estimates each wheel's effective radius from clean rolling frames and warns
+  above 1.5 % — the symptom of a wrong wheel radius, a mis-scaled rig or a bad contact offset.
+- Units: works in any scene linear unit; your unit settings are restored after import.
+- Import isn't undoable (keys go through the API for speed) — use *Delete Rig…*.
+
+**Tests** — run from the project folder:
+
+    "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" -m unittest discover -s maya/tests -v
+
+67 tests: the take reader (bit-for-bit vs Godot), the scene reader (Godot-written fixture:
+winding, baked transforms, take contacts on the ground), the maths core (Euler conventions
+through gimbal, spin solve, radius check), hygiene (Windows-safe text), and 23 that run inside
+headless Maya — convention proof under large rotations, wheel positions, metres/Z-up scenes,
+30 fps, re-solve == import, 8-frame retime, root offset, scene geo in take space, ground faces
+up, **wheels touching the imported ground**, ground-mismatch warning, clean-up, installer.
 
 ## Project layout
 
@@ -62,8 +122,11 @@ scripts/world/terrain.gd    procedural heightmap or imported scene (same-triangl
 scripts/ui/hud.gd           readouts + utility actions
 scripts/ui/take_browser.gd  browser, replay transport, export
 tests/run_tests.gd          headless regression suite (Godot)
-maya/driving_rig/take_io.py take reader for Maya — stdlib only, numpy optional
-maya/tests/                 Python contract tests + a Godot-written fixture take
+maya/install_driving_rig.py drag into a Maya viewport to install
+maya/driving_rig/           take_io (reader) · mathutil + bake (pure-Python maths, solve) ·
+                            rig (3.1 builder) · importer (3.2 curves, 3.3 re-solve/check) ·
+                            ui · menu (menu, shelf, install)
+maya/tests/                 reader, maths and Maya tests + a Godot-written fixture take
 shaders/grid_triplanar.gdshader   world-space (terrain) / object-space (car, wheels) grid
 docs/SCHEMA.md              take format, conventions, deviations from the spec
 docs/take.schema.json       JSON Schema for pipeline-side validation
@@ -108,6 +171,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | format_compat | v1 and v2 readers decode the same take identically |
 | validator | real take clean · corrupted copy caught |
 | export | v1 take re-encoded to valid v2 gz, 10× smaller |
+| scene_export | 7 OBJs, ground 160,801 verts / 320k tris; corner vertex on the height function to 0.0000 cm |
 | browser | list, replay, camera follow, input lock and restore |
 
 ### Python side (no Maya needed)

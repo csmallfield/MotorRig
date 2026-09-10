@@ -5,6 +5,7 @@ extends CanvasLayer
 ## while you drive — for matching a previous take.
 
 signal message(text: String)
+signal scene_exported(result: Dictionary)
 
 @export var car_path: NodePath
 @export var recorder_path: NodePath
@@ -44,7 +45,8 @@ var _speed: OptionButton
 var _status: Label
 var _confirm: ConfirmationDialog
 var _file_dialog: FileDialog
-
+var _scene_dialog: FileDialog
+var _scene_thread: Thread   # dedicated thread, same reason as take loading
 
 func _ready() -> void:
 	layer = 5
@@ -335,6 +337,48 @@ func _on_validated(dst: String, errs: PackedStringArray) -> void:
 		_set_status("Exported, but INVALID (%d): %s" % [errs.size(), "; ".join(errs.slice(0, 3))])
 
 
+# === SCENE GEOMETRY ===
+
+func _on_export_scene() -> void:
+	_scene_dialog.current_dir = _index.get_setting("last_scene_dir",
+			_index.get_setting("last_export_dir", OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)))
+	_scene_dialog.popup_centered_ratio(0.6)
+
+
+## Writes <parent>/<scene name>/ with one OBJ per mesh + scene.mtl + scene.json.
+## Returns the folder it will write to (the write itself runs on a thread).
+func export_scene_to(parent: String, skip: PackedStringArray = PackedStringArray()) -> String:
+	if _scene_thread:
+		return ""
+	var terrain := _rec._terrain
+	if terrain == null:
+		_set_status("No terrain to export")
+		return ""
+	var src := terrain.collision_source_id
+	var folder := "scene_" + src.validate_filename().replace("+", "_").replace(".", "_")
+	var dir := parent.path_join(folder)
+	var objects := SceneGeoExporter.collect(terrain, skip)   # main thread: touches nodes
+	var meta := {"unit_scale": _rec.unit_scale, "collision_source": src,
+		"rig_version": ProjectSettings.get_setting("application/config/version", "dev")}
+	_index.set_setting("last_scene_dir", parent)
+	_set_status("Exporting %d objects -> %s ..." % [objects.size(), dir])
+	_scene_thread = Thread.new()
+	_scene_thread.start(func() -> void:
+		var r := SceneGeoExporter.write(dir, objects, meta)
+		_on_scene_written.call_deferred(r), Thread.PRIORITY_LOW)
+	return dir
+
+
+func _on_scene_written(r: Dictionary) -> void:
+	_scene_thread.wait_to_finish()
+	_scene_thread = null
+	if r.get("ok", false):
+		_set_status("Scene exported: %d OBJ files -> %s  (Maya: Driving Rig > Import Scene Geo...)" % [r["objects"], r["dir"]])
+	else:
+		_set_status("Scene export FAILED: %s" % r.get("error", "?"))
+	scene_exported.emit(r)
+
+
 func _set_status(t: String) -> void:
 	_status.text = t
 	if not is_open:
@@ -402,6 +446,11 @@ func _build_ui() -> void:
 	_fav_only.text = "Favourites only"
 	_fav_only.toggled.connect(func(_on: bool) -> void: refresh())
 	head.add_child(_fav_only)
+	var scene_btn := Button.new()
+	scene_btn.text = "Export Scene..."
+	scene_btn.tooltip_text = "Write the terrain and props as OBJ files (cm, Y-up, world space) for Maya"
+	scene_btn.pressed.connect(_on_export_scene)
+	head.add_child(scene_btn)
 	var folder := Button.new()
 	folder.text = "Folder"
 	folder.tooltip_text = "Open the takes folder (O)"
@@ -521,6 +570,14 @@ func _build_ui() -> void:
 	_file_dialog.file_selected.connect(export_to)
 	add_child(_file_dialog)
 
+	_scene_dialog = FileDialog.new()
+	_scene_dialog.title = "Export scene geometry into folder"
+	_scene_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	_scene_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_scene_dialog.use_native_dialog = true
+	_scene_dialog.dir_selected.connect(export_scene_to)
+	add_child(_scene_dialog)
+
 
 func _button(parent: Control, text: String, cb: Callable) -> Button:
 	var b := Button.new()
@@ -534,3 +591,5 @@ func _button(parent: Control, text: String, cb: Callable) -> Button:
 func _exit_tree() -> void:
 	if _validate_thread and _validate_thread.is_started():
 		_validate_thread.wait_to_finish()
+	if _scene_thread and _scene_thread.is_started():
+		_scene_thread.wait_to_finish()

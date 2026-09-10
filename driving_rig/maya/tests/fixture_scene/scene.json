@@ -1,0 +1,170 @@
+{
+  "collision_source": "proc_heightmap_seed1234_80m_cell2.00+props",
+  "created": "2026-09-10T16:54:17",
+  "format": "driving_rig_scene",
+  "format_version": 1,
+  "forward": "-Z",
+  "godot_version": "4.7-stable (official)",
+  "objects": [
+    {
+      "bounds_max": [
+        4000.0,
+        0.0,
+        4000.0
+      ],
+      "bounds_min": [
+        -4000.0,
+        0.0,
+        -4000.0
+      ],
+      "collides": true,
+      "color": [
+        0.300000011920929,
+        0.360000014305115,
+        0.310000002384186
+      ],
+      "file": "Ground.obj",
+      "name": "Ground",
+      "triangles": 3200,
+      "vertices": 1681
+    },
+    {
+      "bounds_max": [
+        500.0,
+        8.00001907348633,
+        -2955.0
+      ],
+      "bounds_min": [
+        -500.0,
+        -82.0000152587891,
+        -3045.0
+      ],
+      "collides": true,
+      "color": [
+        0.219999998807907,
+        0.340000003576279,
+        0.519999980926514
+      ],
+      "file": "SpeedBump0.obj",
+      "name": "SpeedBump0",
+      "triangles": 768,
+      "vertices": 522
+    },
+    {
+      "bounds_max": [
+        500.0,
+        8.00001907348633,
+        -3355.0
+      ],
+      "bounds_min": [
+        -500.0,
+        -82.0000152587891,
+        -3445.0
+      ],
+      "collides": true,
+      "color": [
+        0.219999998807907,
+        0.340000003576279,
+        0.519999980926514
+      ],
+      "file": "SpeedBump1.obj",
+      "name": "SpeedBump1",
+      "triangles": 768,
+      "vertices": 522
+    },
+    {
+      "bounds_max": [
+        500.0,
+        8.00001907348633,
+        -3755.0
+      ],
+      "bounds_min": [
+        -500.0,
+        -82.0000152587891,
+        -3845.0
+      ],
+      "collides": true,
+      "color": [
+        0.219999998807907,
+        0.340000003576279,
+        0.519999980926514
+      ],
+      "file": "SpeedBump2.obj",
+      "name": "SpeedBump2",
+      "triangles": 768,
+      "vertices": 522
+    },
+    {
+      "bounds_max": [
+        2050.0,
+        140.0,
+        -2550.0
+      ],
+      "bounds_min": [
+        1550.0,
+        0.0,
+        -3450.0
+      ],
+      "collides": true,
+      "color": [
+        0.219999998807907,
+        0.340000003576279,
+        0.519999980926514
+      ],
+      "file": "Ramp.obj",
+      "name": "Ramp",
+      "triangles": 8,
+      "vertices": 20
+    },
+    {
+      "bounds_max": [
+        150.0,
+        0.200000002980232,
+        -5487.5
+      ],
+      "bounds_min": [
+        -150.0,
+        0.0,
+        -5512.5
+      ],
+      "collides": false,
+      "color": [
+        0.949999988079071,
+        0.949999988079071,
+        0.949999988079071
+      ],
+      "file": "Mark0.obj",
+      "name": "Mark0",
+      "triangles": 12,
+      "vertices": 24
+    },
+    {
+      "bounds_max": [
+        12.5,
+        0.200000002980232,
+        -5350.0
+      ],
+      "bounds_min": [
+        -12.5,
+        0.0,
+        -5650.0
+      ],
+      "collides": false,
+      "color": [
+        0.949999988079071,
+        0.949999988079071,
+        0.949999988079071
+      ],
+      "file": "Mark1.obj",
+      "name": "Mark1",
+      "triangles": 12,
+      "vertices": 24
+    }
+  ],
+  "rig_version": "fixture",
+  "space": "world",
+  "unit_scale": 100.0,
+  "units": "cm",
+  "up_axis": "Y",
+  "winding": "ccw"
+}

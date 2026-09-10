@@ -133,11 +133,11 @@ func _build_test_props() -> void:
 		m.top_radius = bump_r
 		m.bottom_radius = bump_r
 		m.height = 10.0
-		var s := CylinderShape3D.new()
-		s.radius = bump_r
-		s.height = 10.0
+		# Collide against the render mesh itself, not an analytic cylinder: the exported OBJ
+		# (and so the Maya set) is this mesh, and "same geometry" is the rule. An analytic
+		# cylinder sat up to 0.6 mm off the 64-sided mesh the wheels are shown rolling on.
 		var xf := Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3(0.0, bump_h - bump_r, -30.0 - j * 4.0))
-		_add_prop("SpeedBump%d" % j, m, s, xf)
+		_add_prop("SpeedBump%d" % j, m, m.create_trimesh_shape(), xf)
 
 	# Launch ramp off to the right — airtime / landing check. Rises toward −Z.
 	var ramp := PrismMesh.new()
@@ -147,14 +147,17 @@ func _build_test_props() -> void:
 	_add_prop("Ramp", ramp, ramp.create_convex_shape(), ramp_xf)
 
 	# A mark to hit: painted cross on the pad, no collision.
-	for dims in [Vector3(3.0, 0.01, 0.25), Vector3(0.25, 0.01, 3.0)]:
+	var mark_i := 0
+	for dims in [Vector3(3.0, 0.002, 0.25), Vector3(0.25, 0.002, 3.0)]:
 		var mk := BoxMesh.new()
 		mk.size = dims
 		var mi := MeshInstance3D.new()
-		mi.name = "Mark"
+		mi.name = "Mark%d" % mark_i
+		mark_i += 1
 		mi.mesh = mk
 		mi.material_override = marker_material
-		mi.position = Vector3(0.0, 0.005, -55.0)
+		mi.position = Vector3(0.0, 0.001, -55.0)
+		mi.set_meta(&"drv_collides", false)   # paint: no collider, flagged in scene exports
 		add_child(mi)
 
 	collision_source_id += "+props"

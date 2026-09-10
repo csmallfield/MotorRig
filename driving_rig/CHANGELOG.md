@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.5.0 — scene geometry export
+
+- **Godot:** *Export Scene...* in the take browser writes terrain, props and marks (or an
+  imported set) as OBJ files + `scene.mtl` + `scene.json`, in the takes' space (world, cm, Y-up),
+  CCW faces with normals. Runs on its own thread (~2 s for the 800 m terrain).
+- **Physics:** speed bumps now collide against their own render mesh instead of an analytic
+  cylinder, so what the wheels touch is exactly what Maya gets (was up to 0.6 mm off). Road
+  marks are 2 mm paint and flagged `collides: false`. Handling unchanged (bump test 1.26 deg).
+- **Maya:** *Import Scene Geo...* (menu + shelf) builds the meshes through the API from our own
+  reader — any scene units, Z-up aware — with a lambert per object and `drvCollides`.
+  Take and scene imports warn if they were made on different ground.
+- New `scene_io.py` (stdlib reader, validation, winding check, surface height lookup),
+  `test_scene_io.py`, 6 new Maya tests, `scene_export` Godot test.
+
+## 0.4.1 — Windows encoding fix
+
+- **Fix:** dropping the installer into Maya on Windows failed with `UnicodeEncodeError`
+  (cp1252 can't encode the marker line), and could leave an existing `userSetup.py` empty.
+  `userSetup.py` is now read and written as raw bytes (your content round-trips exactly,
+  whatever its encoding), our block is pure ASCII (non-ASCII install paths are escaped), and
+  the write goes to a side file first, then swaps — it can't be left half-written.
+- All Maya-side messages are ASCII (a `mayapy` console on Windows would have hit the same error).
+- New `maya/tests/test_hygiene.py` enforces it: no non-ASCII string literals, no `open()`
+  without an explicit encoding. Installer round-trip test now uses non-ASCII file content and
+  a non-ASCII install path. Whole suite verified under a non-UTF-8 default encoding.
+
+## 0.4.0 — Maya importer (spec phase 3)
+
+- **3.1** `rig.build`: proxy rig from `meta` alone — root offset control, chassis, steer → susp →
+  spin → geo ×4, contact locators with grounded/slip attributes, the take's camera. One
+  namespace per import, anim curves included.
+- **3.2** Point-sampled bake at any rate (23.976–60, exact NTSC timing), keys via
+  `MFnAnimCurve.addKeys`, rotate order zxy with continuity unrolling, auto tangents (linear on
+  spin, stepped on grounded). Scene linear/angle units handled and restored; Z-up scenes supported.
+- **3.3** Spin re-solve from scene travel + keyed slip distance (exact at film rates — replaces the
+  frame-averaged slip formula, which drifted up to ~250° at 24 fps). Check Spin: effective-radius
+  diagnostic.
+- Import dialog (settings remembered), Driving Rig menu, DrivingRig shelf, drag-and-drop
+  installer with clean uninstall.
+- Pure-Python core (`mathutil`, `bake`) tested outside Maya; 17 Maya tests for mayapy.
+
 ## 0.3.0 — take format v2 + Python reader
 
 - **Format v2:** one array per channel (component-major, time last), gzipped:

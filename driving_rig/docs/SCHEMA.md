@@ -88,17 +88,47 @@ Spec schema fields plus:
 | `input.steer` | raw device, −1 left … +1 right (opposite sign to `wheels.steer`). |
 | `camera.*` | active camera (chase or driver) at that tick. Optional. |
 
-### Note for the 3.3 spin solve
+### How the Maya importer solves spin (3.3)
 
-Because `slip_long` uses `max(|v|, 1)` in the denominator, `ω × (1 + slip_long)` is only exact
-above 1 m/s. Use the additive form, exact at all speeds:
+The spec's first formula — Δθ = (Δd + slip_long·max(|Δd|, Δt))/r with slip_long averaged at
+frame ends — is exact per 240 Hz tick but not per film frame: slip bursts shorter than a frame
+are lost, which measured up to ~250° of spin error mid-take at 24 fps. The importer instead
+computes, at 240 Hz, each wheel's cumulative **slip distance** S = r·θ_recorded − travel, keys it
+on the rig (`wheel_XX_spin.drvSlipDistance`), and solves
 
-    Δθ = (Δd + slip_long · max(|Δd|, 1.0 · Δt)) / r      Δd = contact-patch travel along wheel forward
+    θ(f) = θ₀ + (travel_scene(f) − travel_scene(f₀) + S(f) − S(f₀)) / r
+
+where travel is measured from the wheel's world matrix in the scene. Cumulative quantities are
+exact under point sampling, so this holds at any frame rate (≤ 0.22° vs recorded on a real take)
+and still follows retimes and offsets. `slip_long` stays in the take and on the contact
+locators for FX.
 
 ## Beside each take (not part of the interchange format)
 
 `take_####.png` (path thumbnail) and a shared `index.cfg` (labels, favourites, cached headers,
 last export folder).
+
+## Scene geometry export (Export Scene...)
+
+A folder `scene_<collision source>/` containing one OBJ per object, `scene.mtl` and `scene.json`:
+
+```json
+{"format": "driving_rig_scene", "format_version": 1, "units": "cm", "unit_scale": 100,
+ "up_axis": "Y", "forward": "-Z", "space": "world", "winding": "ccw",
+ "collision_source": "proc_heightmap_seed1234_800m_cell2.00+props",
+ "objects": [{"name": "Ground", "file": "Ground.obj", "vertices": 160801, "triangles": 320000,
+              "bounds_min": [...], "bounds_max": [...], "color": [r, g, b], "collides": true}, ...]}
+```
+
+- Vertices are world space, Godot metres × `unit_scale`; every node transform is baked in.
+- Faces are **counter-clockwise** (Maya/OBJ front faces). Godot uses clockwise, so faces are
+  reversed on export; `v//vn` vertex normals are included.
+- `collides: false` marks visual-only geometry (road paint). Everything with `collides: true`
+  is exactly what the wheels touched: procedural props collide against their own render mesh,
+  imported sets against trimeshes of their meshes. Verified: 4,696 grounded contacts from a take
+  driven through the hills lie on the exported surface to a median of 0.005 mm.
+- `collision_source` equals the takes' `meta.collision_source` — the Maya importer compares
+  them and warns on a mismatch.
 
 ## Legacy v1
 

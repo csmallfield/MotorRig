@@ -1,4 +1,4 @@
-"""Read Driving Rig takes — format v2 (``.json.gz`` or ``.json``).
+"""Read Driving Rig takes - format v2 (``.json.gz`` or ``.json``).
 
 Standard library only, so it runs in any mayapy (or plain Python 3.7+) without a pip step.
 numpy is used for :meth:`Take.as_numpy` if it happens to be installed; nothing requires it.
@@ -12,9 +12,9 @@ numpy is used for :meth:`Take.as_numpy` if it happens to be installed; nothing r
     frames, t = take.frame_grid(24.0, in_frame=1001)
     take.resample(take["chassis.p"][0], t)   # linear, onto the frame grid
 
-Shapes (time is always the last axis):  scalar → (n)   vector → (k, n)
-per-wheel scalar → (4, n)   per-wheel vector → (4, k, n).  Wheel order FL FR RL RR.
-Conventions are written into every take under ``meta["conventions"]`` — read them there.
+Shapes (time is always the last axis):  scalar -> (n)   vector -> (k, n)
+per-wheel scalar -> (4, n)   per-wheel vector -> (4, k, n).  Wheel order FL FR RL RR.
+Conventions are written into every take under ``meta["conventions"]`` - read them there.
 
 Command line (no Maya needed):  python take_io.py take_0007.json.gz
 """
@@ -30,7 +30,7 @@ FORMAT_NAME = "driving_rig_take"
 SUPPORTED_VERSIONS = (2,)
 WHEELS = ("FL", "FR", "RL", "RR")
 
-# name → (per_wheel, components, is_flag). Mirrors TakeFormat.CHANNELS in the Godot project.
+# name -> (per_wheel, components, is_flag). Mirrors TakeFormat.CHANNELS in the Godot project.
 CHANNELS = {
     "chassis.p": (False, 3, False),
     "chassis.q": (False, 4, False),
@@ -97,7 +97,7 @@ class Take(object):
 
     @property
     def duration(self):
-        """IN → OUT, seconds."""
+        """IN -> OUT, seconds."""
         return (self.out_index - self.in_index) / self.tick_hz
 
     def frame_grid(self, fps, in_frame=1001.0):
@@ -112,7 +112,7 @@ class Take(object):
 
     def resample(self, series, times):
         """Linear resample of one time series (length n) onto ``times`` (seconds re IN).
-        Plain linear is correct for every channel except quaternions — spin_cumulative is
+        Plain linear is correct for every channel except quaternions - spin_cumulative is
         never wrapped precisely so this works."""
         src = self.times()
         out = []
@@ -134,8 +134,8 @@ class Take(object):
         return {k: np.asarray(v, dtype=np.float64) for k, v in self.channels.items()}
 
     def __repr__(self):
-        return "<Take %s: %d samples @ %g Hz, %.2f s IN→OUT>" % (
-            self.meta.get("take", "?"), self.n, self.tick_hz, self.duration)
+        return "<Take %s: %d samples @ %g Hz, %.2f s IN->OUT>" % (
+            _num(self.meta.get("take", "?")), self.n, self.tick_hz, self.duration)
 
 
 # --- loading ----------------------------------------------------------------
@@ -154,7 +154,7 @@ def load(path, validate_take=True):
     if not isinstance(root, dict) or "meta" not in root:
         raise TakeError("%s: not a Driving Rig take" % path)
     if "samples" in root and "channels" not in root:
-        raise TakeError("%s is a format v1 take. Open it in the Godot take browser and Export — "
+        raise TakeError("%s is a format v1 take. Open it in the Godot take browser and Export - "
                         "exports are always written as v2." % path)
     if root.get("format") != FORMAT_NAME or int(root.get("format_version", 0)) not in SUPPORTED_VERSIONS:
         raise TakeError("%s: unsupported format %r v%r" % (path, root.get("format"), root.get("format_version")))
@@ -179,7 +179,7 @@ def validate(root):
         e.append("meta.in_index/out_index out of range")
     hp = meta.get("hardpoints")
     if not (isinstance(hp, list) and len(hp) == 4 and all(isinstance(h, list) and len(h) == 3 for h in hp)):
-        e.append("meta.hardpoints: expected 4 × [x,y,z]")
+        e.append("meta.hardpoints: expected 4 x [x,y,z]")
     chs = root.get("channels", {})
     for name, (per_wheel, comps, flag) in CHANNELS.items():
         v = chs.get(name)
@@ -217,6 +217,11 @@ def validate(root):
 
 # --- CLI --------------------------------------------------------------------
 
+def _num(v):
+    """Godot's JSON round-trip turns whole numbers into floats (1 -> 1.0); show them as ints."""
+    return int(v) if isinstance(v, float) and v.is_integer() else v
+
+
 def _main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -231,14 +236,14 @@ def _main(argv):
             continue
         s = t.summary
         print("OK  %r" % t)
-        print("    %s  ·  %.1f m  ·  peak %.1f km/h  ·  %.2f g lat  ·  air %.2f s" % (
+        print("    %s  |  %.1f m  |  peak %.1f km/h  |  %.2f g lat  |  air %.2f s" % (
             t.meta.get("created", ""), s.get("distance_m", 0), s.get("peak_speed_kmh", 0),
             s.get("max_lateral_g", 0), s.get("airtime_s", 0)))
-        print("    ground: %s  ·  unit_scale %g  ·  handles %s frames" % (
-            t.meta.get("collision_source", "?"), t.unit_scale, t.meta.get("handles", "?")))
+        print("    ground: %s  |  unit_scale %g  |  handles %s frames" % (
+            t.meta.get("collision_source", "?"), t.unit_scale, _num(t.meta.get("handles", "?"))))
         for fps in (24, 25, 30):
             frames, _ = t.frame_grid(fps)
-            print("    @%d fps: frames %d–%d (IN = 1001, OUT = %.0f)" % (
+            print("    @%d fps: frames %d-%d (IN = 1001, OUT = %.0f)" % (
                 fps, frames[0], frames[-1], 1001 + t.duration * fps))
     return rc
 

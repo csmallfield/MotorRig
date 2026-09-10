@@ -1,2 +1,2 @@
-"""Driving Rig — Maya side. Phase 3 (rig builder, curve writer, spin solve) builds on take_io."""
-__version__ = "0.3.0"
+"""Driving Rig - Maya side: take reader, pure-Python bake/solve, rig builder, importer."""
+__version__ = "0.5.0"

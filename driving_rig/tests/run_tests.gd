@@ -11,7 +11,7 @@ extends SceneTree
 const TAKES_DIR: String = "user://test_takes"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
-	"export", "browser"]
+	"export", "scene_export", "browser"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch"]
 
 var queue: Array[String] = []
@@ -469,6 +469,52 @@ func _t_validator() -> bool:
 	DirAccess.remove_absolute(bad_path)
 	_result(errs.is_empty() and bad.size() > 0, "real take: %d errors · corrupted copy: %d errors (first: %s)" % [
 		errs.size(), bad.size(), bad[0] if bad.size() > 0 else "-"])
+	return true
+
+
+## Export the scene from the browser: files, manifest, and the ground's first vertex landing
+## exactly on the terrain height function at the terrain corner, in cm.
+func _t_scene_export() -> bool:
+	if t == 1:
+		st["parent"] = OS.get_user_data_dir().path_join("test_scene_export")
+		st["t0"] = Time.get_ticks_msec()
+		browser.scene_exported.connect(func(r: Dictionary) -> void: st["result"] = r)
+		st["dir"] = browser.export_scene_to(st["parent"])
+		return false
+	if not st.has("result"):
+		OS.delay_msec(20)   # headless --fixed-fps spins flat out; yield like a paced frame would
+		return false
+	var r: Dictionary = st["result"]
+	var dir: String = st["dir"]
+	var ms: int = Time.get_ticks_msec() - st["t0"]
+	var man: Variant = JSON.parse_string(FileAccess.get_file_as_string(dir.path_join("scene.json")))
+	var ok: bool = r.get("ok", false) and man is Dictionary
+	var detail := "export failed: %s" % r.get("error", "?")
+	if ok:
+		var terrain: Terrain = main.get_node("Terrain")
+		var objs: Array = man["objects"]
+		var ground: Dictionary = objs.filter(func(o: Dictionary) -> bool: return o["name"] == "Ground")[0]
+		var f := FileAccess.open(dir.path_join("Ground.obj"), FileAccess.READ)
+		var first_v := PackedFloat64Array()
+		while not f.eof_reached():
+			var line := f.get_line()
+			if line.begins_with("v "):
+				for part in line.substr(2).split(" "):
+					first_v.append(part.to_float())
+				break
+		f.close()
+		var half := terrain.size * 0.5
+		var want := Vector3(-half, terrain.height_at(-half, -half), -half) * 100.0
+		var err := Vector3(first_v[0], first_v[1], first_v[2]).distance_to(want)
+		var names := objs.map(func(o: Dictionary) -> String: return o["name"])
+		ok = objs.size() >= 7 and int(ground["vertices"]) == 160801 and int(ground["triangles"]) == 320000 \
+				and err < 0.001 and man["collision_source"] == terrain.collision_source_id and man["units"] == "cm"
+		var mb := 0.0
+		for o: Dictionary in objs:
+			mb += FileAccess.get_file_as_bytes(dir.path_join(o["file"])).size() / 1048576.0
+		detail = "%d objects %s · ground %d verts / %d tris · %.1f MB · %.1f s · ground corner vertex err %.4f cm" % [
+			objs.size(), str(names), ground["vertices"], ground["triangles"], mb, ms / 1000.0, err]
+	_result(ok, detail)
 	return true
 
 
