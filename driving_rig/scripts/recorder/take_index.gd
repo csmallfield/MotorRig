@@ -1,7 +1,8 @@
 class_name TakeIndex
 extends RefCounted
-## Per-take user metadata that must not live inside the take file: display label and
-## favourite. File names stay stable (`take_0007.json`) so anything downstream that points
+## Per-take user metadata that must not live inside the take file: display label,
+## favourite, and a cached copy of the header (gzipped takes can't be read one line at a
+## time, so listing them would otherwise mean decompressing every file). File names stay stable (`take_0007.json`) so anything downstream that points
 ## at a take — a Maya scene, a shot sheet — never breaks when someone renames it.
 
 const SETTINGS: String = "_settings"
@@ -30,6 +31,15 @@ func is_favourite(file: String) -> bool:
 
 func set_favourite(file: String, fav: bool) -> void:
 	_cfg.set_value(file, "favourite", fav)
+	_cfg.save(_path)
+
+
+func get_header(file: String) -> Dictionary:
+	return _cfg.get_value(file, "header", {})
+
+
+func set_header(file: String, header: Dictionary) -> void:
+	_cfg.set_value(file, "header", header)
 	_cfg.save(_path)
 
 

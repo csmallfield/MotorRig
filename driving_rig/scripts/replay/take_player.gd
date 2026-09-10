@@ -25,6 +25,7 @@ var summary: Dictionary = {}
 var data := PackedFloat64Array()
 var n: int = 0
 var take_hz: float = 240.0
+var format_version: int = 2
 var in_index: int = 0
 var out_index: int = 0
 
@@ -71,6 +72,7 @@ func _on_loaded(r: Dictionary, take_path: String) -> void:
 	summary = r["summary"]
 	data = r["data"]
 	n = r["n"]
+	format_version = int(r.get("format_version", 1))
 	take_hz = float(meta.get("tick_hz", 240))
 	in_index = int(meta.get("in_index", 0))
 	out_index = int(meta.get("out_index", n - 1))
@@ -146,7 +148,7 @@ func _apply() -> void:
 
 ## Takes recorded before thumbnails existed get one the first time they're replayed.
 func _ensure_thumbnail() -> void:
-	var png := path.get_basename() + ".png"
+	var png := TakeFormat.stem(path) + ".png"
 	if not FileAccess.file_exists(png):
 		TakeFormat.render_thumbnail(data, n, in_index, out_index).save_png(png)
 

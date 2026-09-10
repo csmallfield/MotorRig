@@ -10,7 +10,8 @@ extends SceneTree
 
 const TAKES_DIR: String = "user://test_takes"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
-	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "validator", "browser"]
+	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
+	"export", "browser"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch"]
 
 var queue: Array[String] = []
@@ -355,13 +356,19 @@ func _t_record_replay() -> bool:
 				for c in 3:
 					max_rot = maxf(max_rot, (gx.basis[c] - lx.basis[c]).length())
 			compared += 1
+		# v2 precision claim, per channel, against the raw (unrounded) ring buffer
+		var prec := _worst_channel_error(player.data, player.n, func(i: int, o: int) -> float:
+			return rec._buf[((start_tick + i) % rec._cap) * TakeFormat.STRIDE + o])
 		var hdr := TakeFormat.read_header(st["saved"])
-		var png_ok := FileAccess.file_exists(st["saved"].get_basename() + ".png")
+		var png_ok := FileAccess.file_exists(TakeFormat.stem(st["saved"]) + ".png")
+		var kb := FileAccess.get_file_as_bytes(st["saved"]).size() / 1024.0
 		last_take = st["saved"]
 		var ok: bool = player.n == expected and compared == player.n and max_pos < 1e-4 and max_rot < 1e-3 \
-				and int(hdr["summary"]["samples"]) == expected and png_ok
-		_result(ok, "%d samples (expect %d) · ghost vs live over %d samples: wheel pos err %.4f mm, rot err %.6f · thumbnail %s" % [
-			player.n, expected, compared, max_pos * 1000.0, max_rot, png_ok])
+				and int(hdr["summary"]["samples"]) == expected and png_ok and player.format_version == 2 \
+				and str(st["saved"]).ends_with(".json.gz") and kb < 600.0 and prec[0] <= 1.0
+		_result(ok, "v%d %s, %.0f KB for 10 s · %d samples (expect %d) · every channel within its stated precision of the raw data (worst: %s at %.2f×) · ghost vs live: wheel pos err %.4f mm, rot err %.6f · thumbnail %s" % [
+			player.format_version, str(st["saved"]).get_file(), kb, player.n, expected, prec[1], prec[0],
+			max_pos * 1000.0, max_rot, png_ok])
 		return true
 	return false
 
@@ -373,15 +380,90 @@ func _log_live() -> void:
 	st["live"][rec._tick - 1] = xs
 
 
+## Largest |a − b| over all channels, as a multiple of each channel's rounding step
+## (0.5 · 10^-decimals; 0/1 flags use 0.5). ≤ 1.0 means every value honours its precision.
+func _worst_channel_error(a: PackedFloat64Array, n: int, b: Callable) -> Array:
+	var worst := 0.0
+	var worst_name := "-"
+	for ch in TakeFormat.CHANNELS:
+		var tol := 0.5 if ch.get("flag", false) else 0.5 * pow(10.0, -int(ch["dec"])) * 1.0001
+		for w in (4 if ch.get("wheel", false) else 1):
+			var base: int = (TakeFormat.O_WHEELS + w * TakeFormat.W_STRIDE if ch.get("wheel", false) else 0) + int(ch["off"])
+			for c in int(ch["comps"]):
+				for i in n:
+					var rel := absf(a[i * TakeFormat.STRIDE + base + c] - float(b.call(i, base + c))) / tol
+					if rel > worst:
+						worst = rel
+						worst_name = ch["name"]
+	return [worst, worst_name]
+
+
+## The legacy v1 reader and the v2 reader must decode the same take to identical values,
+## so v1 takes already on disk replay and export exactly. (Precision vs the raw data is
+## checked in record_replay.)
+func _t_format_compat() -> bool:
+	if last_take == "":
+		_result(false, "needs record_replay first")
+		return true
+	var v2 := TakeFormat.load_take(last_take)
+	var d: PackedFloat64Array = v2["data"]
+	var n: int = v2["n"]
+	var meta: Dictionary = v2["meta"]
+	var v1_path := TAKES_DIR.path_join("take_0900.json")
+	var f := FileAccess.open(v1_path, FileAccess.WRITE)
+	f.store_string(TakeFormat.v1_header_line(meta, v2["summary"]))
+	for i in n:
+		f.store_string(TakeFormat.v1_sample_line(d, i * TakeFormat.STRIDE,
+				float(i - int(meta["in_index"])) / float(meta["tick_hz"])) + (",\n" if i < n - 1 else "\n"))
+	f.store_string("]}\n")
+	f.close()
+	var v1 := TakeFormat.load_take(v1_path)
+	var d1: PackedFloat64Array = v1["data"]
+	var cmp := _worst_channel_error(d, n, func(i: int, o: int) -> float: return d1[i * TakeFormat.STRIDE + o])
+	var ok: bool = int(v1["format_version"]) == 1 and v1["n"] == n and cmp[0] <= 1.0
+	_result(ok, "v1 reader vs v2 reader on the same take: %d samples each, worst difference %.2f× rounding step" % [v1["n"], cmp[0]])
+	st["v1_path"] = v1_path
+	return true
+
+
+## Export re-encodes: a v1 take exported to .json.gz must come out as valid v2.
+func _t_export() -> bool:
+	var v1_path := TAKES_DIR.path_join("take_0900.json")
+	if not FileAccess.file_exists(v1_path):
+		_result(false, "needs format_compat first")
+		return true
+	if t == 1:
+		browser.open()
+		browser.select_file("take_0900.json")
+		st["dst"] = OS.get_user_data_dir().path_join("exported_test.json.gz")
+		browser.export_to(st["dst"])
+		return false
+	if browser._validate_thread == null and t > 2:
+		var dst: String = st["dst"]
+		var errs := TakeValidator.validate_file(dst)
+		var r := TakeFormat.load_take(dst)
+		var kb := FileAccess.get_file_as_bytes(dst).size() / 1024.0
+		var src_kb := FileAccess.get_file_as_bytes(v1_path).size() / 1024.0
+		var ok: bool = errs.is_empty() and int(r.get("format_version", 0)) == 2 and r.get("n", 0) > 0
+		_result(ok, "v1 take (%.0f KB) exported → v2 gz (%.0f KB, %.1f× smaller) · %d validation errors" % [
+			src_kb, kb, src_kb / maxf(kb, 0.01), errs.size()])
+		DirAccess.remove_absolute(dst)
+		DirAccess.remove_absolute(v1_path)
+		browser.close()
+		return true
+	return false
+
+
 func _t_validator() -> bool:
 	if last_take == "":
 		_result(false, "needs record_replay first")
 		return true
 	var errs := TakeValidator.validate_file(last_take)
-	var text := FileAccess.get_file_as_string(last_take)
+	var text := TakeFormat._read_text(last_take)
 	var bad_path := TAKES_DIR.path_join("corrupt.json")
 	var f := FileAccess.open(bad_path, FileAccess.WRITE)
-	f.store_string(text.replace('"grounded":true', '"grounded":1').replace('"q":[', '"q":[9,'))
+	# a grounded flag of 2, and a non-numeric value that also makes vel.x one sample too long
+	f.store_string(text.replace('"wheels.grounded":[[1,', '"wheels.grounded":[[2,').replace('"vel":[[', '"vel":[["x",'))
 	f.close()
 	var bad := TakeValidator.validate_file(bad_path)
 	DirAccess.remove_absolute(bad_path)

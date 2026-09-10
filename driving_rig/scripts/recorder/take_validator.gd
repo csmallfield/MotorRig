@@ -1,8 +1,10 @@
 class_name TakeValidator
 extends RefCounted
-## Structural validation of a take — the same rules as docs/take.schema.json, so an
-## exported file can be checked in-app without a JSON-Schema library. Checks every sample,
-## not a subset: a single malformed sample is enough to break a Maya import.
+## Structural validation of a take — the same rules as docs/take.schema.json (v2), so an
+## exported file can be checked in-app without a JSON-Schema library, plus the cross-field
+## rules a schema can't express. Every sample is checked, not a subset: one malformed value
+## is enough to break a Maya import. v2 checks are driven by TakeFormat.CHANNELS, so the
+## writer and the validator can't disagree. Legacy v1 files are still validated.
 ## Safe to call from a worker thread.
 
 const MAX_ERRORS: int = 20
@@ -15,7 +17,7 @@ const INPUT_NUMBERS: PackedStringArray = ["throttle", "brake", "steer"]
 
 
 static func validate_file(path: String) -> PackedStringArray:
-	var text := FileAccess.get_file_as_string(path)
+	var text := TakeFormat._read_text(path)   # handles .json.gz
 	if text.is_empty():
 		return PackedStringArray(["cannot read %s" % path])
 	var json := JSON.new()
@@ -35,6 +37,9 @@ static func validate(root: Variant) -> PackedStringArray:
 		e.append("meta: missing")
 		return e
 	_check_meta(meta, e)
+	if int(r.get("format_version", 1)) >= 2:
+		_check_v2(r, meta, e)
+		return e
 	var samples: Variant = r.get("samples")
 	if not (samples is Array and (samples as Array).size() >= 2):
 		e.append("samples: missing or fewer than 2")
@@ -51,6 +56,77 @@ static func validate(root: Variant) -> PackedStringArray:
 			break
 		prev_t = _check_sample(arr[i], i, prev_t, e)
 	return e
+
+
+static func _check_v2(r: Dictionary, meta: Dictionary, e: PackedStringArray) -> void:
+	if r.get("format") != TakeFormat.FORMAT_NAME:
+		e.append("format: expected \"%s\"" % TakeFormat.FORMAT_NAME)
+	if not _is_num(meta.get("n")) or int(meta["n"]) < 2:
+		e.append("meta.n: missing or < 2")
+		return
+	var n := int(meta["n"])
+	var in_i := int(meta.get("in_index", -1))
+	var out_i := int(meta.get("out_index", -1))
+	if in_i < 0 or out_i >= n or in_i >= out_i:
+		e.append("meta.in_index/out_index out of range (%d, %d, n=%d)" % [in_i, out_i, n])
+	var chs: Variant = r.get("channels")
+	if not chs is Dictionary:
+		e.append("channels: missing")
+		return
+	for ch in TakeFormat.CHANNELS:
+		var nm: String = ch["name"]
+		var v: Variant = chs.get(nm)
+		if v == null:
+			if not nm.begins_with("camera."):
+				e.append("channels.%s: missing" % nm)
+			continue
+		var series: Array = []   # every innermost time series
+		var shape_ok := true
+		var outer: Array = []
+		if ch.get("wheel", false):
+			if v is Array and (v as Array).size() == 4:
+				outer = v
+			else:
+				shape_ok = false
+		else:
+			outer = [v]
+		for item: Variant in outer:
+			if int(ch["comps"]) == 1:
+				series.append(item)
+			elif item is Array and (item as Array).size() == int(ch["comps"]):
+				series.append_array(item)
+			else:
+				shape_ok = false
+		if not shape_ok:
+			e.append("channels.%s: wrong shape" % nm)
+			continue
+		for sv: Variant in series:
+			if not (sv is Array and (sv as Array).size() == n):
+				e.append("channels.%s: expected %d samples" % [nm, n])
+				break
+			var bad := false
+			for x: Variant in sv:
+				if not _is_num(x) or (ch.get("flag", false) and float(x) != 0.0 and float(x) != 1.0):
+					bad = true
+					break
+			if bad:
+				e.append("channels.%s: non-numeric%s value" % [nm, " / non-0/1" if ch.get("flag", false) else ""])
+				break
+		if e.size() >= MAX_ERRORS:
+			return
+	var q: Variant = chs.get("chassis.q")
+	var q_ok: bool = q is Array and (q as Array).size() == 4
+	if q_ok:
+		for c in 4:
+			q_ok = q_ok and q[c] is Array and (q[c] as Array).size() == n
+	if q_ok:
+		for i in n:
+			var len2 := 0.0
+			for c in 4:
+				len2 += float(q[c][i]) ** 2
+			if absf(sqrt(len2) - 1.0) > 1e-3:
+				e.append("channels.chassis.q[%d]: not unit length" % i)
+				break
 
 
 static func _check_meta(m: Dictionary, e: PackedStringArray) -> void:

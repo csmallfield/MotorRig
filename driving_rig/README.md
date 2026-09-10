@@ -1,17 +1,19 @@
-# Driving Rig — v0.2.0
+# Driving Rig — v0.3.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
 
 **Done:** Phase 1 (1.1–1.5) and Phase 2 (2.1–2.4): drive, record, browse, replay, export.
-**Next:** Phase 3 — the Maya importer.
+**Also:** take format v2 (columnar + gzip, ~11× smaller) and the Python reader the Maya
+importer builds on. **Next:** Phase 3 — rig builder, curve writer, spin solve.
 
 ## Quick start
 
 1. Open `project.godot` in Godot **4.7** (Forward+). First open imports for a few seconds.
 2. F5. Xbox pad or keyboard. F1 toggles the help overlay.
 3. Start (or R) → 3-2-1 → drive → Start again. Take is written after the 8-frame post-roll.
-4. O opens the takes folder (`%APPDATA%\Godot\app_userdata\Driving Rig\takes\` on Windows).
+4. Takes are written as `take_####.json.gz` (format v2 — see `docs/SCHEMA.md`).
+5. O opens the takes folder (`%APPDATA%\Godot\app_userdata\Driving Rig\takes\` on Windows).
 
 | Gamepad | Keyboard | |
 |---|---|---|
@@ -36,8 +38,10 @@ Tab / LB opens it. The car parks, recording is blocked, and the chase cam follow
   re-simulation. **Y / C** switches chase ↔ the take's own recorded camera. Scrub with the slider.
 - **Label** renames for display only; files stay `take_####.json` so anything downstream that
   references a take never breaks. Labels and favourites live in `takes/index.cfg`.
-- **Export…** copies the take out with a native Save dialog (label as the suggested name),
-  then validates the copy on a background thread and reports the result.
+- **Export…** writes the take with a native Save dialog (label as the suggested name) —
+  always as format v2, so older v1 takes are upgraded on the way out — then validates the
+  written file on a background thread and reports the result. Choose `.json` in the dialog
+  for an uncompressed copy.
 - **Delete** moves the take and its thumbnail to the recycle bin.
 - **Close the browser with a ghost playing** and it keeps looping while you drive — for
   re-shooting a take against the previous one.
@@ -57,7 +61,9 @@ scripts/replay/…            GhostCar (built from meta), TakePlayer (threaded l
 scripts/world/terrain.gd    procedural heightmap or imported scene (same-triangle collision)
 scripts/ui/hud.gd           readouts + utility actions
 scripts/ui/take_browser.gd  browser, replay transport, export
-tests/run_tests.gd          headless regression suite
+tests/run_tests.gd          headless regression suite (Godot)
+maya/driving_rig/take_io.py take reader for Maya — stdlib only, numpy optional
+maya/tests/                 Python contract tests + a Godot-written fixture take
 shaders/grid_triplanar.gdshader   world-space (terrain) / object-space (car, wheels) grid
 docs/SCHEMA.md              take format, conventions, deviations from the spec
 docs/take.schema.json       JSON Schema for pipeline-side validation
@@ -98,19 +104,27 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | flick | lift-off flick at 110 km/h: 1.8° body slip |
 | catch | handbrake kick 8.3°, countersteer recovers to 0° |
 | bumps / ramp / hills | no launch over 8 cm bumps · 0.76 s ramp jump lands upright · 50 km/h hills: no air, no scrape |
-| record_replay | 2561 samples for 10 s · **ghost from file vs live drive: 0.031 mm max wheel error over every sample** |
+| record_replay | v2 gz, 291 KB for 10 s · every channel within its stated precision of the raw data · **ghost from file vs live drive: 0.031 mm max wheel error over every sample** |
+| format_compat | v1 and v2 readers decode the same take identically |
 | validator | real take clean · corrupted copy caught |
+| export | v1 take re-encoded to valid v2 gz, 10× smaller |
 | browser | list, replay, camera follow, input lock and restore |
+
+### Python side (no Maya needed)
+
+    mayapy -m unittest discover -s maya/tests -v
+    mayapy maya/driving_rig/take_io.py path/to/take_0007.json.gz     # summary + validation
+
+The fixture take in `maya/tests` was written by Godot, with Godot's own decoded values
+alongside — the tests prove Python reads the format bit-for-bit the same.
 
 ## Known issues / notes
 
-- **Files are big:** ~3 MB per 10 s (≈55 MB for a 3-minute take). See `docs/SCHEMA.md` —
-  a column-per-channel layout would be 3–5× smaller and load straight into numpy in Maya.
 - At 80+ km/h over the rougher hill lines, crests launch and the 0.9 m overhangs scrape in
   sharp valleys. That's realistic for 18 cm of travel; tame with `octaves` / `amplitude`.
 - Takes are numbered by scanning the folder; deleting the newest take frees its number.
-- Replaying a very long take holds it in memory as parsed JSON while loading (~5× file size,
-  briefly). Fine for minutes; revisit with the column layout if takes get long.
+- Replaying a long take parses it fully in memory while loading (a 3-minute take briefly
+  needs ~100 MB). Loading runs on its own thread.
 - `car_params` in each take snapshots every tuning value, for re-simulation later.
 - Editing `car.tscn`/`main.tscn` in the editor is fine, but a later drop-in that ships the same
   file will overwrite your edits. Prefer tuning via the Inspector on the instance in

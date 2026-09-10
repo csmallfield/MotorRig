@@ -3,8 +3,8 @@ extends RefCounted
 ## Everything that knows the take layout lives here, so recorder, replay, validator and
 ## tests can't drift apart:
 ##   • the flat float64 per-sample layout used in memory (recorder ring, replay buffer)
-##   • the JSON line writer (one sample per line)
-##   • the header reader (line 1 only) and the streaming sample loader
+##   • format v2 writer: one array per channel, optionally gzipped (.json.gz) — current
+##   • readers for v2 and legacy v1 (one object per sample, .json)
 ##   • the path thumbnail
 
 const O_POS: int = 0        # 3
@@ -18,15 +18,187 @@ const W_STRIDE: int = 12    # compression, steer, spin, grounded, cp3, cn3, slip
 const STRIDE: int = O_WHEELS + W_STRIDE * 4   # 73
 
 const SAMPLES_OPEN: String = '"samples":['
+const FORMAT_NAME: String = "driving_rig_take"
+const FORMAT_VERSION: int = 2
+
+## v2 channel table. shape is per-sample; time is always the last axis in the file.
+##   off   offset in the flat layout (per-wheel block offset when wheel == true)
+##   comps components (1 = scalar)     dec  decimals written     flag  written as 0/1
+const CHANNELS: Array[Dictionary] = [
+	{"name": "chassis.p", "off": O_POS, "comps": 3, "dec": 5},
+	{"name": "chassis.q", "off": O_QUAT, "comps": 4, "dec": 6},
+	{"name": "vel", "off": O_VEL, "comps": 3, "dec": 4},
+	{"name": "angvel", "off": O_ANGVEL, "comps": 3, "dec": 4},
+	{"name": "input.throttle", "off": O_INPUT, "comps": 1, "dec": 3},
+	{"name": "input.brake", "off": O_INPUT + 1, "comps": 1, "dec": 3},
+	{"name": "input.steer", "off": O_INPUT + 2, "comps": 1, "dec": 3},
+	{"name": "input.handbrake", "off": O_INPUT + 3, "comps": 1, "flag": true},
+	{"name": "camera.p", "off": O_CAM, "comps": 3, "dec": 4},
+	{"name": "camera.q", "off": O_CAM + 3, "comps": 4, "dec": 6},
+	{"name": "camera.fov", "off": O_CAM + 7, "comps": 1, "dec": 3},
+	{"name": "wheels.compression", "off": 0, "comps": 1, "dec": 5, "wheel": true},
+	{"name": "wheels.steer", "off": 1, "comps": 1, "dec": 5, "wheel": true},
+	{"name": "wheels.spin_cumulative", "off": 2, "comps": 1, "dec": 4, "wheel": true},
+	{"name": "wheels.grounded", "off": 3, "comps": 1, "flag": true, "wheel": true},
+	{"name": "wheels.contact_p", "off": 4, "comps": 3, "dec": 5, "wheel": true},
+	{"name": "wheels.contact_n", "off": 7, "comps": 3, "dec": 4, "wheel": true},
+	{"name": "wheels.slip_long", "off": 10, "comps": 1, "dec": 3, "wheel": true},
+	{"name": "wheels.slip_lat", "off": 11, "comps": 1, "dec": 4, "wheel": true},
+]
 
 
-# === WRITE ===
+# === FILE NAMES ===
 
-static func header_line(meta: Dictionary, summary: Dictionary) -> String:
+static func is_take_file(f: String) -> bool:
+	return f.begins_with("take_") and (f.ends_with(".json") or f.ends_with(".json.gz"))
+
+
+## "…/take_0007.json.gz" → "…/take_0007" (thumbnail and label keys hang off this)
+static func stem(path: String) -> String:
+	if path.ends_with(".json.gz"):
+		return path.left(-8)
+	if path.ends_with(".json"):
+		return path.left(-5)
+	return path.get_basename()
+
+
+static func take_number(f: String) -> int:
+	return f.get_file().substr(5, 4).to_int() if is_take_file(f.get_file()) else 0
+
+
+# === WRITE (v2) ===
+
+## Writes format v2. `compress` → gzip (standard, Python: gzip.open). Safe on a worker thread.
+static func write_take(path: String, meta: Dictionary, summary: Dictionary, d: PackedFloat64Array,
+		n: int, compress: bool) -> Error:
+	var m := meta.duplicate()
+	m["n"] = n
+	var shapes := {}
+	for ch in CHANNELS:
+		var shp: Array = []
+		if ch.get("wheel", false):
+			shp.append(4)
+		if int(ch["comps"]) > 1:
+			shp.append(int(ch["comps"]))
+		shapes[ch["name"]] = shp
+	m["channel_shapes"] = shapes
+	var lines := PackedStringArray()
+	lines.append('{"format":"%s","format_version":%d,"meta":%s,"summary":%s,' % [
+		FORMAT_NAME, FORMAT_VERSION, JSON.stringify(m), JSON.stringify(summary)])
+	lines.append('"channels":{')
+	var body := PackedStringArray()
+	for ch in CHANNELS:
+		body.append('"%s":%s' % [ch["name"], _channel_json(d, n, ch)])
+	lines.append(",\n".join(body))
+	lines.append("}}\n")
+	var text := "\n".join(lines)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return FileAccess.get_open_error()
+	if compress:
+		f.store_buffer(text.to_utf8_buffer().compress(FileAccess.COMPRESSION_GZIP))
+	else:
+		f.store_string(text)
+	var err := f.get_error()
+	f.close()
+	return OK if err == OK or err == ERR_FILE_EOF else err
+
+
+static func _channel_json(d: PackedFloat64Array, n: int, ch: Dictionary) -> String:
+	var comps: int = ch["comps"]
+	if ch.get("wheel", false):
+		var per_wheel := PackedStringArray()
+		for w in 4:
+			var base: int = O_WHEELS + w * W_STRIDE + int(ch["off"])
+			per_wheel.append(_components(d, n, base, comps, ch))
+		return "[" + ",".join(per_wheel) + "]"
+	return _components(d, n, ch["off"], comps, ch)
+
+
+static func _components(d: PackedFloat64Array, n: int, base: int, comps: int, ch: Dictionary) -> String:
+	if comps == 1:
+		return _series(d, n, base, ch)
+	var parts := PackedStringArray()
+	for c in comps:
+		parts.append(_series(d, n, base + c, ch))
+	return "[" + ",".join(parts) + "]"
+
+
+static func _series(d: PackedFloat64Array, n: int, off: int, ch: Dictionary) -> String:
+	var out := PackedStringArray()
+	out.resize(n)
+	if ch.get("flag", false):
+		for i in n:
+			out[i] = "1" if d[i * STRIDE + off] > 0.5 else "0"
+	else:
+		var dec: int = ch["dec"]
+		var eps := 0.5 * pow(10.0, -dec)
+		for i in n:
+			var v := d[i * STRIDE + off]
+			out[i] = "0" if absf(v) < eps else String.num(v, dec)
+	return "[" + ",".join(out) + "]"
+
+
+# === READ (v2 channels → flat layout) ===
+
+static func _store_channels(chs: Dictionary, n: int) -> Dictionary:
+	var d := PackedFloat64Array()
+	d.resize(n * STRIDE)
+	d.fill(0.0)
+	for ch in CHANNELS:
+		var v: Variant = chs.get(ch["name"])
+		if v == null:
+			if str(ch["name"]).begins_with("camera."):
+				continue   # optional
+			return {"error": "missing channel %s" % ch["name"]}
+		var comps: int = ch["comps"]
+		if ch.get("wheel", false):
+			if not (v is Array and (v as Array).size() == 4):
+				return {"error": "%s: expected 4 wheels" % ch["name"]}
+			for w in 4:
+				var base: int = O_WHEELS + w * W_STRIDE + int(ch["off"])
+				var e := _unpack(d, n, base, comps, v[w], ch["name"])
+				if e != "":
+					return {"error": e}
+		else:
+			var e := _unpack(d, n, ch["off"], comps, v, ch["name"])
+			if e != "":
+				return {"error": e}
+	return {"data": d}
+
+
+static func _unpack(d: PackedFloat64Array, n: int, base: int, comps: int, v: Variant, name: String) -> String:
+	var series: Array = [v] if comps == 1 else (v as Array if v is Array else [])
+	if series.size() != comps:
+		return "%s: expected %d components" % [name, comps]
+	for c in comps:
+		var arr: Variant = series[c]
+		if not (arr is Array and (arr as Array).size() == n):
+			return "%s: expected %d samples" % [name, n]
+		var a: Array = arr
+		for i in n:
+			d[i * STRIDE + base + c] = float(a[i])
+	return ""
+
+
+static func _is_gzip(bytes: PackedByteArray) -> bool:
+	return bytes.size() > 2 and bytes[0] == 0x1f and bytes[1] == 0x8b
+
+
+static func _read_text(path: String) -> String:
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if _is_gzip(bytes):
+		return bytes.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP).get_string_from_utf8()
+	return bytes.get_string_from_utf8()
+
+
+# === WRITE (legacy v1 — kept for compatibility tests) ===
+
+static func v1_header_line(meta: Dictionary, summary: Dictionary) -> String:
 	return '{"meta":%s,"summary":%s,\n%s\n' % [JSON.stringify(meta), JSON.stringify(summary), SAMPLES_OPEN]
 
 
-static func sample_line(d: PackedFloat64Array, o: int, t: float) -> String:
+static func v1_sample_line(d: PackedFloat64Array, o: int, t: float) -> String:
 	return '{"t":%.6f,"chassis":{"p":%s,"q":%s},"wheels":[%s],"input":{"throttle":%.4f,"brake":%.4f,"steer":%.4f,"handbrake":%s},"vel":%s,"angvel":%s,"camera":{"p":%s,"q":%s,"fov":%.3f}}' % [
 		t,
 		_v3(d, o + O_POS), _v4(d, o + O_QUAT),
@@ -58,18 +230,24 @@ static func _v4(d: PackedFloat64Array, o: int) -> String:
 
 # === READ ===
 
-## Reads line 1 only. Falls back to a full parse for files that were reformatted.
+## Header = {meta, summary}. Plain files: reads line 1 only. Gzipped files must be
+## decompressed — callers should cache (the browser keeps headers in index.cfg).
 static func read_header(path: String) -> Dictionary:
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return {}
-	var line := f.get_line().strip_edges()
-	f.close()
+	var line := ""
+	if path.ends_with(".gz"):
+		line = _read_text(path).get_slice("\n", 0).strip_edges()
+	else:
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f == null:
+			return {}
+		line = f.get_line().strip_edges()
+		f.close()
 	if line.ends_with(","):
 		var h: Variant = JSON.parse_string(line.left(-1) + "}")
 		if h is Dictionary and (h as Dictionary).has("meta"):
-			return h
-	var full: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+			return {"meta": h["meta"], "summary": (h as Dictionary).get("summary", {}),
+				"format_version": int((h as Dictionary).get("format_version", 1))}
+	var full: Variant = JSON.parse_string(_read_text(path))
 	if full is Dictionary and (full as Dictionary).has("meta"):
 		return {"meta": full["meta"], "summary": (full as Dictionary).get("summary", {})}
 	return {}
@@ -79,6 +257,29 @@ static func read_header(path: String) -> Dictionary:
 ## line when the file has the writer's layout (low peak memory); otherwise full parse.
 ## Safe to call from a worker thread.
 static func load_take(path: String) -> Dictionary:
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.is_empty():
+		return {"error": "cannot read %s" % path}
+	var gz := _is_gzip(bytes)
+	var head := bytes.slice(0, 4096).get_string_from_utf8() if not gz else ""
+	if gz or head.contains('"format_version":2'):
+		var text := bytes.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP).get_string_from_utf8() \
+				if gz else bytes.get_string_from_utf8()
+		bytes = PackedByteArray()
+		var json := JSON.new()
+		if json.parse(text) != OK:
+			return {"error": "JSON line %d: %s" % [json.get_error_line(), json.get_error_message()]}
+		var root: Variant = json.data
+		if not (root is Dictionary and (root as Dictionary).has("channels")):
+			return {"error": "not a v2 take"}
+		var meta: Dictionary = root["meta"]
+		var n := int(meta.get("n", 0))
+		var r := _store_channels(root["channels"], n)
+		if r.has("error"):
+			return r
+		return {"meta": meta, "summary": (root as Dictionary).get("summary", {}), "data": r["data"],
+			"n": n, "format_version": 2}
+	# ── legacy v1: one sample per line, streamed ──
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return {"error": "cannot open %s (%d)" % [path, FileAccess.get_open_error()]}
@@ -112,7 +313,7 @@ static func load_take(path: String) -> Dictionary:
 				n += 1
 			f.close()
 			data.resize(n * STRIDE)
-			return {"meta": hdr["meta"], "summary": summary, "data": data, "n": n}
+			return {"meta": hdr["meta"], "summary": summary, "data": data, "n": n, "format_version": 1}
 	f.close()
 
 	var full: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
@@ -125,7 +326,8 @@ static func load_take(path: String) -> Dictionary:
 		var e := store_sample(d, i * STRIDE, samples[i])
 		if e != "":
 			return {"error": "sample %d: %s" % [i, e]}
-	return {"meta": full["meta"], "summary": (full as Dictionary).get("summary", {}), "data": d, "n": samples.size()}
+	return {"meta": full["meta"], "summary": (full as Dictionary).get("summary", {}), "data": d,
+		"n": samples.size(), "format_version": 1}
 
 
 ## Unpacks one sample dictionary into the flat layout. Returns "" or an error string.

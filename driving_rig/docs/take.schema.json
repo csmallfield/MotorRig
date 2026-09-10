@@ -1,18 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "driving-rig/take.schema.json",
-  "title": "Driving Rig take",
-  "description": "One take recorded by the Godot driving rig. See docs/SCHEMA.md for conventions. Checks the same rules as scripts/recorder/take_validator.gd, except the cross-field ones (strictly increasing t, unit quaternions, in_index < out_index < samples), which a JSON Schema can't express.",
+  "title": "Driving Rig take \u2014 format v2",
+  "description": "Columnar take: every channel is a time series (time = last axis), component-major. Usually gzipped (.json.gz). See docs/SCHEMA.md. Cross-field rules (all series length == meta.n, unit quaternions, in_index < out_index < n) are checked by TakeValidator (Godot) and take_io.validate (Python), not by this schema.",
   "type": "object",
   "required": [
+    "format",
+    "format_version",
     "meta",
-    "samples"
+    "channels"
   ],
   "properties": {
+    "format": {
+      "const": "driving_rig_take"
+    },
+    "format_version": {
+      "const": 2
+    },
     "meta": {
       "type": "object",
       "required": [
         "take",
+        "n",
         "tick_hz",
         "unit_scale",
         "up_axis",
@@ -33,6 +42,10 @@
       "properties": {
         "take": {
           "type": "integer"
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 2
         },
         "tick_hz": {
           "type": "number",
@@ -65,16 +78,7 @@
         },
         "out_index": {
           "type": "integer",
-          "minimum": 0
-        },
-        "godot_version": {
-          "type": "string"
-        },
-        "rig_version": {
-          "type": "string"
-        },
-        "created": {
-          "type": "string"
+          "minimum": 1
         },
         "body": {
           "type": "object",
@@ -149,183 +153,251 @@
           "minItems": 4,
           "maxItems": 4
         },
+        "channel_shapes": {
+          "type": "object"
+        },
         "conventions": {
           "type": "object"
         },
         "car_params": {
           "type": "object"
+        },
+        "godot_version": {
+          "type": "string"
+        },
+        "rig_version": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string"
         }
       }
     },
     "summary": {
       "type": "object"
     },
-    "samples": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": [
-          "t",
-          "chassis",
-          "wheels",
-          "input",
-          "vel",
-          "angvel"
-        ],
-        "properties": {
-          "t": {
+    "channels": {
+      "type": "object",
+      "required": [
+        "chassis.p",
+        "chassis.q",
+        "vel",
+        "angvel",
+        "input.throttle",
+        "input.brake",
+        "input.steer",
+        "input.handbrake",
+        "wheels.compression",
+        "wheels.steer",
+        "wheels.spin_cumulative",
+        "wheels.grounded",
+        "wheels.contact_p",
+        "wheels.contact_n",
+        "wheels.slip_long",
+        "wheels.slip_lat"
+      ],
+      "properties": {
+        "chassis.p": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "chassis.q": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "vel": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "angvel": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "input.throttle": {
+          "type": "array",
+          "items": {
             "type": "number"
-          },
-          "chassis": {
-            "type": "object",
-            "required": [
-              "p",
-              "q"
-            ],
-            "properties": {
-              "p": {
-                "type": "array",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 3,
-                "maxItems": 3
-              },
-              "q": {
-                "type": "array",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 4,
-                "maxItems": 4
-              }
-            }
-          },
-          "wheels": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "compression",
-                "steer",
-                "spin_cumulative",
-                "grounded",
-                "contact_p",
-                "contact_n",
-                "slip_long",
-                "slip_lat"
-              ],
-              "properties": {
-                "compression": {
-                  "type": "number"
-                },
-                "steer": {
-                  "type": "number"
-                },
-                "spin_cumulative": {
-                  "type": "number"
-                },
-                "grounded": {
-                  "type": "boolean"
-                },
-                "contact_p": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 3,
-                  "maxItems": 3
-                },
-                "contact_n": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 3,
-                  "maxItems": 3
-                },
-                "slip_long": {
-                  "type": "number"
-                },
-                "slip_lat": {
-                  "type": "number"
-                }
-              }
-            },
-            "minItems": 4,
-            "maxItems": 4
-          },
-          "input": {
-            "type": "object",
-            "required": [
-              "throttle",
-              "brake",
-              "steer",
-              "handbrake"
-            ],
-            "properties": {
-              "throttle": {
-                "type": "number"
-              },
-              "brake": {
-                "type": "number"
-              },
-              "steer": {
-                "type": "number"
-              },
-              "handbrake": {
-                "type": "boolean"
-              }
-            }
-          },
-          "vel": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "minItems": 3,
-            "maxItems": 3
-          },
-          "angvel": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "minItems": 3,
-            "maxItems": 3
-          },
-          "camera": {
-            "type": "object",
-            "required": [
-              "p",
-              "q",
-              "fov"
-            ],
-            "properties": {
-              "p": {
-                "type": "array",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 3,
-                "maxItems": 3
-              },
-              "q": {
-                "type": "array",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 4,
-                "maxItems": 4
-              },
-              "fov": {
-                "type": "number"
-              }
-            }
           }
+        },
+        "input.brake": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "input.steer": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "input.handbrake": {
+          "type": "array",
+          "items": {
+            "enum": [
+              0,
+              1
+            ]
+          }
+        },
+        "camera.p": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "camera.q": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "camera.fov": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "wheels.compression": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.steer": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.spin_cumulative": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.grounded": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "enum": [
+                0,
+                1
+              ]
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.contact_p": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.contact_n": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.slip_long": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheels.slip_lat": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "minItems": 4,
+          "maxItems": 4
         }
-      },
-      "minItems": 2
+      }
     }
   }
 }

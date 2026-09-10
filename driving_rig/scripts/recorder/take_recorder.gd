@@ -30,6 +30,8 @@ const W_STRIDE: int = TakeFormat.W_STRIDE
 @export var handle_fps_basis: float = 24.0
 @export var unit_scale: float = 100.0
 @export var takes_dir: String = "user://takes"
+## Format v2 gzipped (.json.gz, ~11× smaller). Off → plain .json, same layout.
+@export var compress_takes: bool = true
 
 var state: State = State.IDLE
 var tick_hz: int = 240
@@ -37,6 +39,9 @@ var handle_ticks: int = 80
 var last_saved_path: String = ""
 var blocked: bool = false   ## set by the take browser — no new takes while it's open
 var last_summary: Dictionary = {}
+## Shared per-take metadata (labels, favourites, cached headers). One instance for the
+## whole app — two ConfigFile writers on the same file would clobber each other.
+var index: TakeIndex
 
 var _car: DrivingCar
 var _cam_rig: ChaseCameraRig
@@ -65,6 +70,7 @@ func _ready() -> void:
 	_buf.resize(_cap * STRIDE)
 	_buf.fill(0.0)
 	DirAccess.make_dir_recursive_absolute(takes_dir)
+	index = TakeIndex.new(takes_dir)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -196,7 +202,7 @@ func _finalize() -> void:
 		data.append_array(_buf.slice(0, (n - (_cap - a)) * STRIDE))
 
 	var take_no := _next_take_number()
-	var path := "%s/take_%04d.json" % [takes_dir, take_no]
+	var path := "%s/take_%04d%s" % [takes_dir, take_no, ".json.gz" if compress_takes else ".json"]
 	var meta := {
 		"take": take_no,
 		"tick_hz": tick_hz,
@@ -223,8 +229,7 @@ func _next_take_number() -> int:
 	var dir := DirAccess.open(takes_dir)
 	if dir:
 		for f in dir.get_files():
-			if f.begins_with("take_") and f.ends_with(".json"):
-				best = maxi(best, f.substr(5, f.length() - 10).to_int())
+			best = maxi(best, TakeFormat.take_number(f))
 	return best + 1
 
 
@@ -234,23 +239,13 @@ func _write_take(path: String, meta: Dictionary, data: PackedFloat64Array, n: in
 	var in_i: int = meta["in_index"]
 	var out_i: int = meta["out_index"]
 	var summary := _summarize(data, n, in_i, out_i)
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f == null:
-		_on_write_done.call_deferred(false, path, {}, "open failed (%d)" % FileAccess.get_open_error())
+	var err := TakeFormat.write_take(path, meta, summary, data, n, compress_takes)
+	if err != OK:
+		_on_write_done.call_deferred(false, path, {}, error_string(err))
 		return
-	f.store_string(TakeFormat.header_line(meta, summary))
-	var inv := 1.0 / tick_hz
-	for i in n:
-		f.store_string(TakeFormat.sample_line(data, i * STRIDE, float(i - in_i) * inv)
-				+ (",\n" if i < n - 1 else "\n"))
-	f.store_string("]}\n")
-	var err := f.get_error()
-	f.close()
-	if err != OK and err != ERR_FILE_EOF:
-		_on_write_done.call_deferred(false, path, {}, "write error (%d)" % err)
-		return
-	TakeFormat.render_thumbnail(data, n, in_i, out_i).save_png(path.get_basename() + ".png")
-	_on_write_done.call_deferred(true, path, summary, "")
+	TakeFormat.render_thumbnail(data, n, in_i, out_i).save_png(TakeFormat.stem(path) + ".png")
+	meta["n"] = n
+	_on_write_done.call_deferred(true, path, summary, "", meta)
 
 
 func _summarize(d: PackedFloat64Array, n: int, in_i: int, out_i: int) -> Dictionary:
@@ -302,7 +297,8 @@ func _vel_at(d: PackedFloat64Array, i: int) -> Vector3:
 	return Vector3(d[o], d[o + 1], d[o + 2])
 
 
-func _on_write_done(ok: bool, path: String, summary: Dictionary, message: String) -> void:
+func _on_write_done(ok: bool, path: String, summary: Dictionary, message: String,
+		meta: Dictionary = {}) -> void:
 	if _thread:
 		_thread.wait_to_finish()
 		_thread = null
@@ -310,6 +306,7 @@ func _on_write_done(ok: bool, path: String, summary: Dictionary, message: String
 	if ok:
 		last_saved_path = path
 		last_summary = summary
+		index.set_header(path.get_file(), {"meta": meta, "summary": summary, "format_version": TakeFormat.FORMAT_VERSION})
 		print("Take saved: %s  (%d samples, %.2f s)" % [ProjectSettings.globalize_path(path),
 				summary["samples"], summary["duration_s"]])
 		take_saved.emit(path, summary)

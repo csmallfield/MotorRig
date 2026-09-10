@@ -52,7 +52,7 @@ func _ready() -> void:
 	_rec = get_node(recorder_path) as TakeRecorder
 	_player = get_node(player_path) as TakePlayer
 	_rig = get_node(camera_rig_path) as ChaseCameraRig
-	_index = TakeIndex.new(_rec.takes_dir)
+	_index = _rec.index   # shared — see TakeRecorder.index
 	_build_ui()
 	_panel.visible = false
 	_rec.take_saved.connect(func(p: String, _s: Dictionary) -> void:
@@ -124,7 +124,7 @@ func refresh() -> void:
 	var dir := DirAccess.open(_rec.takes_dir)
 	if dir:
 		for f in dir.get_files():
-			if f.begins_with("take_") and f.ends_with(".json"):
+			if TakeFormat.is_take_file(f):
 				files.append(f)
 	files.sort()
 	files.reverse()
@@ -136,9 +136,12 @@ func refresh() -> void:
 	for f in files:
 		if _fav_only.button_pressed and not _index.is_favourite(f):
 			continue
-		var h := TakeFormat.read_header(_path(f))
+		var h := _index.get_header(f)
 		if h.is_empty():
-			continue
+			h = TakeFormat.read_header(_path(f))   # first sighting (v1 take, or copied in)
+			if h.is_empty():
+				continue
+			_index.set_header(f, h)
 		_headers[f] = h
 		var s: Dictionary = h.get("summary", {})
 		var it := _tree.create_item(root)
@@ -199,8 +202,9 @@ func _show_details(f: String) -> void:
 	_thumb_big.texture = _thumb(f)
 	_label_edit.text = _index.get_label(f)
 	_btn_fav.text = "★ Unfavourite" if _index.is_favourite(f) else "☆ Favourite"
-	_details.text = "%s   (%s)\n%s\n%.2f s  ·  %d samples  ·  %.1f m\npeak %.1f km/h  ·  lat %.2f g  ·  long %.2f g\nairtime %.2f s  (%d ticks)\n%s\nGodot %s  ·  rig %s" % [
-		_display_name(f), f, str(m.get("created", "")),
+	var fv := int(h.get("format_version", 1))
+	_details.text = "%s   (%s%s)\n%s\n%.2f s  ·  %d samples  ·  %.1f m\npeak %.1f km/h  ·  lat %.2f g  ·  long %.2f g\nairtime %.2f s  (%d ticks)\n%s\nGodot %s  ·  rig %s" % [
+		_display_name(f), f, "" if fv >= 2 else " · format v1, exports as v2", str(m.get("created", "")),
 		float(s.get("duration_s", 0)), int(s.get("samples", 0)), float(s.get("distance_m", 0)),
 		float(s.get("peak_speed_kmh", 0)), float(s.get("max_lateral_g", 0)), float(s.get("max_longitudinal_g", 0)),
 		float(s.get("airtime_s", 0)), int(s.get("airtime_ticks", 0)),
@@ -210,7 +214,7 @@ func _show_details(f: String) -> void:
 func _thumb(f: String) -> Texture2D:
 	if _thumbs.has(f):
 		return _thumbs[f]
-	var png := _path(f).get_basename() + ".png"
+	var png := TakeFormat.stem(_path(f)) + ".png"
 	var tex: Texture2D = null
 	if FileAccess.file_exists(png):
 		var img := Image.load_from_file(png)
@@ -223,7 +227,7 @@ func _thumb(f: String) -> Texture2D:
 
 func _display_name(f: String) -> String:
 	var l := _index.get_label(f)
-	return l if l != "" else f.get_basename()
+	return l if l != "" else TakeFormat.stem(f)
 
 
 func _path(f: String) -> String:
@@ -278,7 +282,7 @@ func _on_delete_confirmed() -> void:
 	var json := _path(_selected)
 	if _player.active and _player.path == json:
 		_player.stop()
-	for p in [json, json.get_basename() + ".png"]:
+	for p in [json, TakeFormat.stem(json) + ".png"]:
 		if FileAccess.file_exists(p):
 			var err := OS.move_to_trash(ProjectSettings.globalize_path(p))
 			if err != OK:
@@ -296,25 +300,30 @@ func _on_export() -> void:
 	var base := _display_name(_selected).validate_filename()
 	_file_dialog.current_dir = _index.get_setting("last_export_dir",
 			OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS))
-	_file_dialog.current_file = base + ".json"
+	_file_dialog.current_file = base + ".json.gz"
 	_file_dialog.popup_centered_ratio(0.6)
 
 
-## Copy the take out of user://, then validate the copy on a worker thread.
+## Re-encode the take as format v2 at dst (gzipped if dst ends in .gz), then validate the
+## written file — all on a dedicated thread. Older v1 takes come out as v2 too, so the
+## Maya importer only ever has to read one format.
 func export_to(dst: String) -> void:
-	var src := ProjectSettings.globalize_path(_path(_selected))
-	var err := DirAccess.copy_absolute(src, dst)
-	if err != OK:
-		_set_status("Export FAILED (%s) → %s" % [error_string(err), dst])
-		return
-	_index.set_setting("last_export_dir", dst.get_base_dir())
-	_set_status("Exported → %s — validating…" % dst)
 	if _validate_thread:
 		return
+	var src := _path(_selected)
+	_set_status("Exporting → %s…" % dst)
 	_validate_thread = Thread.new()
 	_validate_thread.start(func() -> void:
-		var errs := TakeValidator.validate_file(dst)
-		_on_validated.call_deferred(dst, errs), Thread.PRIORITY_LOW)
+		var r := TakeFormat.load_take(src)
+		if r.has("error"):
+			_on_validated.call_deferred(dst, PackedStringArray(["read failed: " + str(r["error"])]))
+			return
+		var err := TakeFormat.write_take(dst, r["meta"], r["summary"], r["data"], r["n"], dst.ends_with(".gz"))
+		if err != OK:
+			_on_validated.call_deferred(dst, PackedStringArray(["write failed: " + error_string(err)]))
+			return
+		_on_validated.call_deferred(dst, TakeValidator.validate_file(dst)), Thread.PRIORITY_LOW)
+	_index.set_setting("last_export_dir", dst.get_base_dir())
 
 
 func _on_validated(dst: String, errs: PackedStringArray) -> void:
@@ -508,7 +517,7 @@ func _build_ui() -> void:
 	_file_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	_file_dialog.use_native_dialog = true
-	_file_dialog.filters = PackedStringArray(["*.json ; Take JSON"])
+	_file_dialog.filters = PackedStringArray(["*.json.gz ; Take, compressed (v2)", "*.json ; Take, plain (v2)"])
 	_file_dialog.file_selected.connect(export_to)
 	add_child(_file_dialog)
 
