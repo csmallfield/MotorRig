@@ -1,0 +1,18 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/car/car.gd" id="1_car"]
+[ext_resource type="Material" path="res://materials/car_body.tres" id="2_body"]
+[ext_resource type="Material" path="res://materials/car_wheel.tres" id="3_wheel"]
+[ext_resource type="Material" path="res://materials/car_accent.tres" id="4_accent"]
+
+[node name="Car" type="RigidBody3D"]
+mass = 1200.0
+script = ExtResource("1_car")
+body_material = ExtResource("2_body")
+wheel_material = ExtResource("3_wheel")
+accent_material = ExtResource("4_accent")
+
+[node name="DriverCam" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.997564, -0.069756, 0, 0.069756, 0.997564, -0.3, 0.47, 0.2)
+fov = 70.0
+near = 0.05

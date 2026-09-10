@@ -1,0 +1,121 @@
+extends CanvasLayer
+## On-screen readout plus the utility actions that don't belong to car/camera/recorder
+## (recover, reset, open takes folder, help toggle).
+
+@export var car_path: NodePath
+@export var recorder_path: NodePath
+
+var _car: DrivingCar
+var _rec: TakeRecorder
+var _speed: Label
+var _status: Label
+var _info: Label
+var _help: Label
+var _msg: Label
+var _msg_time: float = 0.0
+
+const HELP_TEXT := """GAMEPAD                      KEYBOARD
+RT / LT   throttle / brake   W / S  (↑ / ↓)
+Left stick   steer           A / D  (← / →)
+B   handbrake                Space
+Y   camera                   C
+Start   record / stop        R
+View/Back   recover upright  Backspace
+                             Home   reset to spawn
+                             O   open takes folder
+                             F1   toggle this help
+Hold brake at a stop to reverse."""
+
+
+func _ready() -> void:
+	_car = get_node(car_path) as DrivingCar
+	_rec = get_node(recorder_path) as TakeRecorder
+	_speed = _make_label(48, Control.PRESET_BOTTOM_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
+	_status = _make_label(40, Control.PRESET_CENTER_TOP, HORIZONTAL_ALIGNMENT_CENTER)
+	_info = _make_label(16, Control.PRESET_TOP_LEFT, HORIZONTAL_ALIGNMENT_LEFT)
+	_help = _make_label(16, Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT)
+	_msg = _make_label(20, Control.PRESET_CENTER_BOTTOM, HORIZONTAL_ALIGNMENT_CENTER)
+	_help.text = HELP_TEXT
+	_rec.take_saved.connect(_on_take_saved)
+	_rec.take_failed.connect(func(m: String) -> void: _flash("Take write FAILED: " + m))
+
+
+func _make_label(font_size: int, preset: Control.LayoutPreset, align: HorizontalAlignment) -> Label:
+	var l := Label.new()
+	var ls := LabelSettings.new()
+	ls.font_size = font_size
+	ls.outline_size = maxi(4, font_size / 6)
+	ls.outline_color = Color(0, 0, 0, 0.85)
+	l.label_settings = ls
+	l.horizontal_alignment = align
+	add_child(l)
+	l.set_anchors_and_offsets_preset(preset, Control.PRESET_MODE_MINSIZE, 24)
+	l.grow_horizontal = Control.GROW_DIRECTION_BOTH if align == HORIZONTAL_ALIGNMENT_CENTER \
+			else (Control.GROW_DIRECTION_BEGIN if align == HORIZONTAL_ALIGNMENT_RIGHT else Control.GROW_DIRECTION_END)
+	return l
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"recover"):
+		if _car.reset_locked:
+			_flash("Recover disabled while recording")
+		else:
+			_car.recover_upright()
+	elif event.is_action_pressed(&"reset_spawn"):
+		if _car.reset_locked:
+			_flash("Reset disabled while recording")
+		else:
+			_car.reset_to_spawn()
+	elif event.is_action_pressed(&"open_takes_folder"):
+		OS.shell_open(ProjectSettings.globalize_path(_rec.takes_dir))
+	elif event.is_action_pressed(&"toggle_help"):
+		_help.visible = not _help.visible
+
+
+func _process(delta: float) -> void:
+	var kmh := absf(_car.forward_speed) * 3.6
+	_speed.text = "%s %3d km/h" % ["R" if _car.is_reversing else "D", roundi(kmh)]
+
+	match _rec.state:
+		TakeRecorder.State.IDLE:
+			_status.text = ""
+		TakeRecorder.State.COUNTDOWN:
+			_status.text = str(_rec.countdown_remaining())
+		TakeRecorder.State.RECORDING:
+			_status.text = "● REC  %s" % _fmt_time(_rec.recorded_seconds())
+		TakeRecorder.State.POST_ROLL:
+			_status.text = "● REC  %s  (handles)" % _fmt_time(_rec.recorded_seconds())
+		TakeRecorder.State.SAVING:
+			_status.text = "Saving…"
+	_status.modulate = Color(1, 0.3, 0.3) if _rec.state in [TakeRecorder.State.RECORDING,
+			TakeRecorder.State.POST_ROLL] else Color.WHITE
+
+	var comp := PackedStringArray()
+	for i in 4:
+		comp.append("%s %4.1fcm%s" % [DrivingCar.WHEEL_NAMES[i], _car.wheel_compression[i] * 100.0,
+				"" if _car.wheel_grounded[i] else "*"])
+	_info.text = "%d fps · %d Hz physics · %s\n%s\nsteer %+.2f  thr %.2f  brk %.2f%s" % [
+		Engine.get_frames_per_second(), Engine.physics_ticks_per_second,
+		ProjectSettings.get_setting("physics/3d/physics_engine"),
+		"  ".join(comp), _car.input_steer, _car.input_throttle, _car.input_brake,
+		"  HANDBRAKE" if _car.input_handbrake else ""]
+
+	if _msg_time > 0.0:
+		_msg_time -= delta
+		_msg.modulate.a = clampf(_msg_time, 0.0, 1.0)
+
+
+func _on_take_saved(path: String, s: Dictionary) -> void:
+	_flash("Saved %s — %d samples · %.2f s · %.0f m · peak %.0f km/h · %.2f g lat\n%s" % [
+		path.get_file(), s["samples"], s["duration_s"], s["distance_m"], s["peak_speed_kmh"],
+		s["max_lateral_g"], ProjectSettings.globalize_path(path)], 6.0)
+
+
+func _flash(text: String, seconds: float = 3.0) -> void:
+	_msg.text = text
+	_msg_time = seconds
+	_msg.modulate.a = 1.0
+
+
+func _fmt_time(sec: float) -> String:
+	return "%02d:%05.2f" % [int(sec) / 60, fmod(sec, 60.0)]
