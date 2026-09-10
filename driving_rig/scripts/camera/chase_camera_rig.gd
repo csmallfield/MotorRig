@@ -1,7 +1,8 @@
 class_name ChaseCameraRig
 extends Node3D
 ## Lagged chase camera (SpringArm3D) plus the car's driver-eye camera, toggled with
-## gamepad Y / keyboard C. Runs in _physics_process at tick rate so its motion is
+## gamepad Y / keyboard C. Follows the live car by default; the take browser points it at
+## the replay ghost, and while a replay is shown Y/C toggles chase ↔ recorded camera. Runs in _physics_process at tick rate so its motion is
 ## deterministic and gets the same physics interpolation as the car.
 
 @export var car_path: NodePath
@@ -16,7 +17,14 @@ extends Node3D
 @onready var _chase_cam: Camera3D = $Arm/Camera
 
 var active_camera: Camera3D
+## Set by the browser while a replay is on screen; replaces the driver cam in the toggle.
+var replay_cam: Camera3D = null:
+	set(v):
+		replay_cam = v
+		if v == null and active_camera != _chase_cam and active_camera != _driver_cam:
+			_set_active(_chase_cam)
 var _car: DrivingCar
+var _follow: Node3D
 var _driver_cam: Camera3D
 var _yaw: float = 0.0
 
@@ -25,6 +33,7 @@ func _ready() -> void:
 	process_physics_priority = 50   # after the car (0), before the recorder (100)
 	top_level = true
 	_car = get_node(car_path) as DrivingCar
+	_follow = _car
 	_driver_cam = _car.get_node("DriverCam") as Camera3D
 	_arm.spring_length = arm_length
 	_arm.rotation_degrees.x = pitch_deg
@@ -32,16 +41,27 @@ func _ready() -> void:
 	s.radius = 0.25
 	_arm.shape = s
 	_arm.collision_mask = DrivingCar.LAYER_WORLD
-	_arm.add_excluded_object(_car.get_rid())
+	_arm.add_excluded_object(_car.get_rid())   # the ghost has no collider, nothing to exclude
 	_chase_cam.fov = chase_fov
-	_car.teleported.connect(snap)
+	_car.teleported.connect(func() -> void: if _follow == _car: snap())
 	snap()
 	_set_active(_chase_cam)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"camera_toggle"):
-		_set_active(_driver_cam if active_camera == _chase_cam else _chase_cam)
+		var alt := replay_cam if replay_cam else _driver_cam
+		_set_active(alt if active_camera == _chase_cam else _chase_cam)
+
+
+## Point the chase rig at another body (the replay ghost) or back at the car.
+func follow(target: Node3D) -> void:
+	if target == _follow:
+		return
+	_follow = target
+	if active_camera == _driver_cam and target != _car:
+		_set_active(_chase_cam)
+	snap()
 
 
 func _physics_process(delta: float) -> void:
@@ -58,11 +78,11 @@ func snap() -> void:
 
 
 func _target_pos() -> Vector3:
-	return _car.global_position + Vector3.UP * pivot_height
+	return _follow.global_position + Vector3.UP * pivot_height
 
 
 func _target_yaw() -> float:
-	var fwd := -_car.global_basis.z
+	var fwd := -_follow.global_basis.z
 	fwd.y = 0.0
 	if fwd.length_squared() < 1e-4:
 		return _yaw

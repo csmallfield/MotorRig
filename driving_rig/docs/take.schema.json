@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "driving-rig/take.schema.json",
+  "title": "Driving Rig take",
+  "description": "One take recorded by the Godot driving rig. See docs/SCHEMA.md for conventions. Checks the same rules as scripts/recorder/take_validator.gd, except the cross-field ones (strictly increasing t, unit quaternions, in_index < out_index < samples), which a JSON Schema can't express.",
+  "type": "object",
+  "required": [
+    "meta",
+    "samples"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "take",
+        "tick_hz",
+        "unit_scale",
+        "up_axis",
+        "forward",
+        "handles",
+        "in_index",
+        "out_index",
+        "body",
+        "wheelbase",
+        "track_f",
+        "track_r",
+        "wheel_radius",
+        "wheel_width",
+        "susp_rest",
+        "susp_max_travel",
+        "hardpoints"
+      ],
+      "properties": {
+        "take": {
+          "type": "integer"
+        },
+        "tick_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit_scale": {
+          "type": "number"
+        },
+        "up_axis": {
+          "const": "Y"
+        },
+        "forward": {
+          "const": "-Z"
+        },
+        "collision_source": {
+          "type": "string"
+        },
+        "handles": {
+          "type": "integer"
+        },
+        "handle_ticks": {
+          "type": "integer"
+        },
+        "handle_fps_basis": {
+          "type": "number"
+        },
+        "in_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "out_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "godot_version": {
+          "type": "string"
+        },
+        "rig_version": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string"
+        },
+        "body": {
+          "type": "object",
+          "required": [
+            "extents",
+            "com_offset"
+          ],
+          "properties": {
+            "extents": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "com_offset": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "mass": {
+              "type": "number"
+            },
+            "extents_are": {
+              "const": "full_size"
+            }
+          }
+        },
+        "wheelbase": {
+          "type": "number"
+        },
+        "track_f": {
+          "type": "number"
+        },
+        "track_r": {
+          "type": "number"
+        },
+        "wheel_radius": {
+          "type": "number"
+        },
+        "wheel_width": {
+          "type": "number"
+        },
+        "susp_rest": {
+          "type": "number"
+        },
+        "susp_max_travel": {
+          "type": "number"
+        },
+        "hardpoints": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "wheel_order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "conventions": {
+          "type": "object"
+        },
+        "car_params": {
+          "type": "object"
+        }
+      }
+    },
+    "summary": {
+      "type": "object"
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "t",
+          "chassis",
+          "wheels",
+          "input",
+          "vel",
+          "angvel"
+        ],
+        "properties": {
+          "t": {
+            "type": "number"
+          },
+          "chassis": {
+            "type": "object",
+            "required": [
+              "p",
+              "q"
+            ],
+            "properties": {
+              "p": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "q": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            }
+          },
+          "wheels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "compression",
+                "steer",
+                "spin_cumulative",
+                "grounded",
+                "contact_p",
+                "contact_n",
+                "slip_long",
+                "slip_lat"
+              ],
+              "properties": {
+                "compression": {
+                  "type": "number"
+                },
+                "steer": {
+                  "type": "number"
+                },
+                "spin_cumulative": {
+                  "type": "number"
+                },
+                "grounded": {
+                  "type": "boolean"
+                },
+                "contact_p": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "contact_n": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "slip_long": {
+                  "type": "number"
+                },
+                "slip_lat": {
+                  "type": "number"
+                }
+              }
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "input": {
+            "type": "object",
+            "required": [
+              "throttle",
+              "brake",
+              "steer",
+              "handbrake"
+            ],
+            "properties": {
+              "throttle": {
+                "type": "number"
+              },
+              "brake": {
+                "type": "number"
+              },
+              "steer": {
+                "type": "number"
+              },
+              "handbrake": {
+                "type": "boolean"
+              }
+            }
+          },
+          "vel": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "angvel": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "camera": {
+            "type": "object",
+            "required": [
+              "p",
+              "q",
+              "fov"
+            ],
+            "properties": {
+              "p": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "q": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "fov": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "minItems": 2
+    }
+  }
+}

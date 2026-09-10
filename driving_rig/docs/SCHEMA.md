@@ -1,4 +1,4 @@
-# Take file format — v0.1.0
+# Take file format — v0.2.0 (unchanged since v0.1.0)
 
 One file per take: `user://takes/take_####.json`. Units metres, radians, seconds.
 Right-handed, Y-up, −Z forward (same as Maya — conversion is a pure `unit_scale` multiply).
@@ -14,6 +14,13 @@ Right-handed, Y-up, −Z forward (same as Maya — conversion is a pure `unit_sc
 ```
 
 The whole file is also one valid JSON document.
+
+Next to each take: `take_####.png` (path thumbnail) and a shared `index.cfg` (labels,
+favourites, last export folder). Neither is part of the interchange format.
+
+Validate pipeline-side with `docs/take.schema.json` (JSON Schema 2020-12), e.g. Python
+`jsonschema`. The in-app validator additionally checks what a schema can't express: strictly
+increasing `t`, unit quaternions, and `in_index < out_index < len(samples)`.
 
 ## meta — additions to the spec schema
 

@@ -4,15 +4,20 @@ extends CanvasLayer
 
 @export var car_path: NodePath
 @export var recorder_path: NodePath
+@export var player_path: NodePath
+@export var browser_path: NodePath
 
 var _car: DrivingCar
 var _rec: TakeRecorder
+var _player: TakePlayer
+var _browser: TakeBrowser
 var _speed: Label
 var _status: Label
 var _info: Label
 var _help: Label
 var _msg: Label
 var _msg_time: float = 0.0
+var _help_wanted: bool = true
 
 const HELP_TEXT := """GAMEPAD                      KEYBOARD
 RT / LT   throttle / brake   W / S  (↑ / ↓)
@@ -20,6 +25,8 @@ Left stick   steer           A / D  (← / →)
 B   handbrake                Space
 Y   camera                   C
 Start   record / stop        R
+LB   take browser            Tab
+X   ghost play / pause       P
 View/Back   recover upright  Backspace
                              Home   reset to spawn
                              O   open takes folder
@@ -30,6 +37,9 @@ Hold brake at a stop to reverse."""
 func _ready() -> void:
 	_car = get_node(car_path) as DrivingCar
 	_rec = get_node(recorder_path) as TakeRecorder
+	_player = get_node(player_path) as TakePlayer
+	_browser = get_node(browser_path) as TakeBrowser
+	_browser.message.connect(func(m: String) -> void: _flash(m, 4.0))
 	_speed = _make_label(48, Control.PRESET_BOTTOM_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	_status = _make_label(40, Control.PRESET_CENTER_TOP, HORIZONTAL_ALIGNMENT_CENTER)
 	_info = _make_label(16, Control.PRESET_TOP_LEFT, HORIZONTAL_ALIGNMENT_LEFT)
@@ -69,16 +79,20 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"open_takes_folder"):
 		OS.shell_open(ProjectSettings.globalize_path(_rec.takes_dir))
 	elif event.is_action_pressed(&"toggle_help"):
-		_help.visible = not _help.visible
+		_help_wanted = not _help_wanted
 
 
 func _process(delta: float) -> void:
 	var kmh := absf(_car.forward_speed) * 3.6
 	_speed.text = "%s %3d km/h" % ["R" if _car.is_reversing else "D", roundi(kmh)]
 
+	_speed.visible = not _browser.is_open
+	_help.visible = _help_wanted and not _browser.is_open
 	match _rec.state:
 		TakeRecorder.State.IDLE:
 			_status.text = ""
+			if _player.active and not _browser.is_open:
+				_status.text = "%s GHOST  %+.2f s" % ["▶" if _player.playing else "❚❚", _player.current_time()]
 		TakeRecorder.State.COUNTDOWN:
 			_status.text = str(_rec.countdown_remaining())
 		TakeRecorder.State.RECORDING:

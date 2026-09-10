@@ -8,6 +8,11 @@
 [ext_resource type="Material" path="res://materials/terrain.tres" id="6_tmat"]
 [ext_resource type="Material" path="res://materials/props.tres" id="7_pmat"]
 [ext_resource type="Material" path="res://materials/marker.tres" id="8_mmat"]
+[ext_resource type="Script" path="res://scripts/replay/take_player.gd" id="9_player"]
+[ext_resource type="Script" path="res://scripts/ui/take_browser.gd" id="10_browser"]
+[ext_resource type="Material" path="res://materials/ghost_body.tres" id="11_ghost"]
+[ext_resource type="Material" path="res://materials/car_wheel.tres" id="12_wheel"]
+[ext_resource type="Material" path="res://materials/car_accent.tres" id="13_accent"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_horizon_color = Color(0.66, 0.7, 0.75, 1)
@@ -60,7 +65,22 @@ car_path = NodePath("../Car")
 camera_rig_path = NodePath("../ChaseCam")
 terrain_path = NodePath("../Terrain")
 
+[node name="TakePlayer" type="Node" parent="."]
+script = ExtResource("9_player")
+ghost_body_material = ExtResource("11_ghost")
+wheel_material = ExtResource("12_wheel")
+accent_material = ExtResource("13_accent")
+
+[node name="TakeBrowser" type="CanvasLayer" parent="."]
+script = ExtResource("10_browser")
+car_path = NodePath("../Car")
+recorder_path = NodePath("../Recorder")
+player_path = NodePath("../TakePlayer")
+camera_rig_path = NodePath("../ChaseCam")
+
 [node name="HUD" type="CanvasLayer" parent="."]
 script = ExtResource("5_hud")
 car_path = NodePath("../Car")
 recorder_path = NodePath("../Recorder")
+player_path = NodePath("../TakePlayer")
+browser_path = NodePath("../TakeBrowser")

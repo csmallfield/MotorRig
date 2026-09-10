@@ -1,10 +1,10 @@
-# Driving Rig — v0.1.0
+# Driving Rig — v0.2.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
 
-**This drop:** Phase 1 complete (1.1–1.5) + recorder capture and persistence (2.1, 2.2).
-**Next:** 2.3 browser/ghost replay, 2.4 export dialog, then Phase 3 (Maya).
+**Done:** Phase 1 (1.1–1.5) and Phase 2 (2.1–2.4): drive, record, browse, replay, export.
+**Next:** Phase 3 — the Maya importer.
 
 ## Quick start
 
@@ -20,10 +20,29 @@ A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
 | B | Space | handbrake |
 | Y | C | chase ↔ driver cam |
 | Start | R | record / stop (cancels during countdown) |
+| LB | Tab | take browser |
+| X | P | ghost play / pause |
 | View/Back | Backspace | recover upright in place |
 | — | Home | reset to spawn |
 
 Recover/reset are locked while a take is running so every take is physically continuous.
+
+## Take browser
+
+Tab / LB opens it. The car parks, recording is blocked, and the chase cam follows the replay.
+
+- **Double-click / Enter / A** replays. The ghost (cyan) is rebuilt from the take's `meta`
+  alone — the same job the Maya importer does — and posed straight from the samples, no
+  re-simulation. **Y / C** switches chase ↔ the take's own recorded camera. Scrub with the slider.
+- **Label** renames for display only; files stay `take_####.json` so anything downstream that
+  references a take never breaks. Labels and favourites live in `takes/index.cfg`.
+- **Export…** copies the take out with a native Save dialog (label as the suggested name),
+  then validates the copy on a background thread and reports the result.
+- **Delete** moves the take and its thumbnail to the recycle bin.
+- **Close the browser with a ghost playing** and it keeps looping while you drive — for
+  re-shooting a take against the previous one.
+
+Thumbnails are a top-down path plot (10 m grid, colour = speed, green IN, red OUT).
 
 ## Project layout
 
@@ -32,11 +51,16 @@ scenes/main.tscn            world, car, cameras, recorder, HUD
 scenes/car.tscn             RigidBody3D + DriverCam; everything else is generated in code
 scripts/car/car.gd          suspension, tires, drivetrain, steering, wheel chain, take meta
 scripts/camera/…            chase SpringArm rig + camera toggle
-scripts/recorder/…          ring buffer, countdown, handles, threaded JSON writer
+scripts/recorder/…          ring buffer + writer, TakeFormat (layout/IO/thumbnail),
+                            TakeIndex (labels, favourites), TakeValidator
+scripts/replay/…            GhostCar (built from meta), TakePlayer (threaded load, playback)
 scripts/world/terrain.gd    procedural heightmap or imported scene (same-triangle collision)
 scripts/ui/hud.gd           readouts + utility actions
+scripts/ui/take_browser.gd  browser, replay transport, export
+tests/run_tests.gd          headless regression suite
 shaders/grid_triplanar.gdshader   world-space (terrain) / object-space (car, wheels) grid
 docs/SCHEMA.md              take format, conventions, deviations from the spec
+docs/take.schema.json       JSON Schema for pipeline-side validation
 ```
 
 The car builds its body, collider, shape casts and `steer → susp → spin → geo` chains from
@@ -55,19 +79,28 @@ All on the Car node, grouped in the Inspector. Tick rate is 240 Hz — tune *at*
   speed plus this margin. Raise it to allow provoked understeer; ~40 disables the limiter.
 - **Terrain:** `amplitude`, `octaves` (sharper crests → more airtime), `flat_radius`.
 
-## Verified (headless, Godot 4.7-stable, Jolt, 240 Hz)
+## Tests
 
-| Spec test | Result |
+After any retune, run the suite (Windows: use the **console** executable):
+
+    Godot_v4.7-stable_win64_console.exe --headless --path . --fixed-fps 240 --script res://tests/run_tests.gd
+
+Add test names after `--` to run a subset. Each test prints PASS/FAIL with measured values;
+the exit code is the failure count. Test takes go to `user://test_takes`, never your takes.
+The thresholds encode the spec's handling target, so a retune that makes the car snappy or
+twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
+
+| Test | Result |
 |---|---|
-| 1.1 lands and rests level | ride height as designed, 0.000° roll/pitch |
-| 1.2 settles, no jitter, push damps | 0.0 mm rest jitter; push + roll kick damps in ~1 s |
-| 1.3 accel / brake / turn / no spin-out | 0–100 4.35 s · 120→0 in 52 m (1.08 g), 1.5° dive · ~3.3° roll/g · full lock ≈ 1.0 g at 40–140 km/h, yaw-rate s.d. ≤ 0.02 rad/s · lift-off flick at 110 km/h: 1.8° body slip · handbrake slide caught by countersteer |
-| 1.4 wheels over bumps | 8 cm kerbs at 20–70 km/h: no launch, ≤ 1.3° pitch |
-| 1.5 slopes | 50 km/h across the hills: zero airtime, zero body contact |
-| 2.1 sample count | 10 s take → 2561 samples (2400 + 2×80 handle ticks + 1) |
-| 2.2 persistence | valid JSON; header readable from line 1 alone |
-
-Rendering checked via software OpenGL (Compatibility renderer), not Forward+/Vulkan.
+| settle | 0.000 mm rest jitter · ride height within 0.07 mm of analytic · push damped in < 2 s |
+| accel_brake | 0–100 4.35 s · 120→0 in 52 m (1.09 g) |
+| corner_60/100/140 | full lock: ≤ 6.8° body slip · yaw-rate s.d. ≤ 0.019 · 1.02–1.05 g |
+| flick | lift-off flick at 110 km/h: 1.8° body slip |
+| catch | handbrake kick 8.3°, countersteer recovers to 0° |
+| bumps / ramp / hills | no launch over 8 cm bumps · 0.76 s ramp jump lands upright · 50 km/h hills: no air, no scrape |
+| record_replay | 2561 samples for 10 s · **ghost from file vs live drive: 0.031 mm max wheel error over every sample** |
+| validator | real take clean · corrupted copy caught |
+| browser | list, replay, camera follow, input lock and restore |
 
 ## Known issues / notes
 
@@ -75,7 +108,9 @@ Rendering checked via software OpenGL (Compatibility renderer), not Forward+/Vul
   a column-per-channel layout would be 3–5× smaller and load straight into numpy in Maya.
 - At 80+ km/h over the rougher hill lines, crests launch and the 0.9 m overhangs scrape in
   sharp valleys. That's realistic for 18 cm of travel; tame with `octaves` / `amplitude`.
-- Takes are numbered by scanning the folder; deleting `take_0005.json` makes the next one 0005.
+- Takes are numbered by scanning the folder; deleting the newest take frees its number.
+- Replaying a very long take holds it in memory as parsed JSON while loading (~5× file size,
+  briefly). Fine for minutes; revisit with the column layout if takes get long.
 - `car_params` in each take snapshots every tuning value, for re-simulation later.
 - Editing `car.tscn`/`main.tscn` in the editor is fine, but a later drop-in that ships the same
   file will overwrite your edits. Prefer tuning via the Inspector on the instance in

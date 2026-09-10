@@ -6,7 +6,7 @@ extends Node
 ## Start → 3-2-1 → IN … Start → OUT → post-roll handle → write on a worker thread.
 ## Nothing is allocated in _physics_process while a take is live.
 ##
-## File layout: line 1 is `{"meta":{…},"summary":{…},` so a browser can read the header
+## Layout lives in TakeFormat. File layout: line 1 is `{"meta":{…},"summary":{…},` so a browser can read the header
 ## by reading one line; the whole file is still a single valid JSON document.
 
 signal state_changed(new_state: int)
@@ -15,16 +15,9 @@ signal take_failed(message: String)
 
 enum State { IDLE, COUNTDOWN, RECORDING, POST_ROLL, SAVING }
 
-# Sample layout (float64 per channel)
-const O_POS: int = 0        # 3
-const O_QUAT: int = 3       # 4  xyzw
-const O_VEL: int = 7        # 3
-const O_ANGVEL: int = 10    # 3
-const O_INPUT: int = 13     # 4  throttle, brake, steer, handbrake
-const O_CAM: int = 17       # 8  p3, q4, fov
-const O_WHEELS: int = 25
-const W_STRIDE: int = 12    # compression, steer, spin, grounded, cp3, cn3, slip_long, slip_lat
-const STRIDE: int = O_WHEELS + W_STRIDE * 4   # 73
+const STRIDE: int = TakeFormat.STRIDE
+const O_WHEELS: int = TakeFormat.O_WHEELS
+const W_STRIDE: int = TakeFormat.W_STRIDE
 
 @export var car_path: NodePath
 @export var camera_rig_path: NodePath
@@ -42,6 +35,7 @@ var state: State = State.IDLE
 var tick_hz: int = 240
 var handle_ticks: int = 80
 var last_saved_path: String = ""
+var blocked: bool = false   ## set by the take browser — no new takes while it's open
 var last_summary: Dictionary = {}
 
 var _car: DrivingCar
@@ -102,7 +96,7 @@ func _physics_process(_delta: float) -> void:
 	_toggle_requested = false
 	match state:
 		State.IDLE:
-			if toggle:
+			if toggle and not blocked:
 				_countdown_end = _tick + countdown_seconds * tick_hz
 				_car.reset_locked = true
 				_set_state(State.COUNTDOWN)
@@ -244,44 +238,19 @@ func _write_take(path: String, meta: Dictionary, data: PackedFloat64Array, n: in
 	if f == null:
 		_on_write_done.call_deferred(false, path, {}, "open failed (%d)" % FileAccess.get_open_error())
 		return
-	f.store_string('{"meta":%s,"summary":%s,\n"samples":[\n' % [JSON.stringify(meta), JSON.stringify(summary)])
+	f.store_string(TakeFormat.header_line(meta, summary))
 	var inv := 1.0 / tick_hz
 	for i in n:
-		var o := i * STRIDE
-		var line := '{"t":%.6f,"chassis":{"p":%s,"q":%s},"wheels":[%s],"input":{"throttle":%.4f,"brake":%.4f,"steer":%.4f,"handbrake":%s},"vel":%s,"angvel":%s,"camera":{"p":%s,"q":%s,"fov":%.3f}}' % [
-			float(i - in_i) * inv,
-			_v3(data, o + O_POS), _v4(data, o + O_QUAT),
-			_wheels_json(data, o),
-			data[o + 13], data[o + 14], data[o + 15], "true" if data[o + 16] > 0.5 else "false",
-			_v3(data, o + O_VEL), _v3(data, o + O_ANGVEL),
-			_v3(data, o + O_CAM), _v4(data, o + O_CAM + 3), data[o + O_CAM + 7],
-		]
-		f.store_string(line + (",\n" if i < n - 1 else "\n"))
+		f.store_string(TakeFormat.sample_line(data, i * STRIDE, float(i - in_i) * inv)
+				+ (",\n" if i < n - 1 else "\n"))
 	f.store_string("]}\n")
 	var err := f.get_error()
 	f.close()
 	if err != OK and err != ERR_FILE_EOF:
 		_on_write_done.call_deferred(false, path, {}, "write error (%d)" % err)
 		return
+	TakeFormat.render_thumbnail(data, n, in_i, out_i).save_png(path.get_basename() + ".png")
 	_on_write_done.call_deferred(true, path, summary, "")
-
-
-func _wheels_json(d: PackedFloat64Array, o: int) -> String:
-	var parts := PackedStringArray()
-	for w in 4:
-		var k := o + O_WHEELS + w * W_STRIDE
-		parts.append('{"compression":%.5f,"steer":%.6f,"spin_cumulative":%.5f,"grounded":%s,"contact_p":%s,"contact_n":%s,"slip_long":%.4f,"slip_lat":%.4f}' % [
-			d[k], d[k + 1], d[k + 2], "true" if d[k + 3] > 0.5 else "false",
-			_v3(d, k + 4), _v3(d, k + 7), d[k + 10], d[k + 11]])
-	return ",".join(parts)
-
-
-func _v3(d: PackedFloat64Array, o: int) -> String:
-	return "[%.5f,%.5f,%.5f]" % [d[o], d[o + 1], d[o + 2]]
-
-
-func _v4(d: PackedFloat64Array, o: int) -> String:
-	return "[%.7f,%.7f,%.7f,%.7f]" % [d[o], d[o + 1], d[o + 2], d[o + 3]]
 
 
 func _summarize(d: PackedFloat64Array, n: int, in_i: int, out_i: int) -> Dictionary:
@@ -329,7 +298,7 @@ func _summarize(d: PackedFloat64Array, n: int, in_i: int, out_i: int) -> Diction
 
 
 func _vel_at(d: PackedFloat64Array, i: int) -> Vector3:
-	var o := i * STRIDE + O_VEL
+	var o := i * STRIDE + TakeFormat.O_VEL
 	return Vector3(d[o], d[o + 1], d[o + 2])
 
 
