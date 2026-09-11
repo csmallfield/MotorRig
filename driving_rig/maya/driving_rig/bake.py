@@ -141,6 +141,38 @@ def _chain_240(take, w, hp, susp_rest):
     return cs, fs
 
 
+def steering_params(meta):
+    """Steering-wheel placement from a take's car_params (rig 0.7+), in cm; None if absent."""
+    cp = meta.get("car_params", {})
+    if not ("steering_ratio" in cp and "driver_eye" in cp):
+        return None
+    s = float(meta.get("unit_scale", 100.0))
+    return {
+        "ratio": float(cp["steering_ratio"]),
+        "position_cm": [(float(cp["driver_eye"][k]) + float(cp["steering_wheel_offset"][k])) * s for k in range(3)],
+        "tilt_deg": float(cp["steering_column_tilt_deg"]),
+        "radius_cm": float(cp["steering_wheel_radius"]) * s,
+    }
+
+
+def static_compression(meta):
+    """(front, rear) suspension compression at rest, metres: the axle's share of the weight
+    over its spring rate. Uses the take's car and world params; 0 if they're missing."""
+    cp = meta.get("car_params", {})
+    wp = (meta.get("world_profile") or {}).get("params", {})
+    mass = cp.get("mass") or meta.get("body", {}).get("mass")
+    kf, kr = cp.get("spring_rate_front"), cp.get("spring_rate_rear")
+    if not (mass and kf and kr):
+        return 0.0, 0.0
+    g = float(wp.get("gravity", 9.81))
+    wb = float(meta["wheelbase"])
+    com_z = float(meta.get("body", {}).get("com_offset", [0, 0, 0])[2])
+    front_share = min(max((wb * 0.5 - com_z) / wb, 0.0), 1.0)   # front axle at -wb/2 (forward is -Z)
+    cap = float(meta.get("susp_max_travel", 1.0))
+    per_wheel = float(mass) * g * 0.5
+    return (min(per_wheel * front_share / float(kf), cap), min(per_wheel * (1.0 - front_share) / float(kr), cap))
+
+
 class Bake(object):
     """Everything the Maya layer writes, per frame. Lists are parallel to `frames`."""
     pass
@@ -216,18 +248,10 @@ def bake(take, fps=24.0, in_frame=1001.0, solve=True):
                      if not abs(r["radius_error_percent"]) <= RADIUS_WARN_PERCENT]
 
     # steering wheel: mean front road-wheel angle x ratio (as in Godot); needs rig 0.7+ params
-    cp = meta.get("car_params", {})
-    b.steering = None
-    if "steering_ratio" in cp and "driver_eye" in cp:
+    b.steering = steering_params(meta)
+    if b.steering:
         fl, fr = b.wheels["FL"]["steer_ry"], b.wheels["FR"]["steer_ry"]
-        ratio = float(cp["steering_ratio"])
-        b.steering = {
-            "angle": [(a + c) * 0.5 * ratio for a, c in zip(fl, fr)],   # rad, + = CCW from the seat
-            "ratio": ratio,
-            "position_cm": [(float(cp["driver_eye"][k]) + float(cp["steering_wheel_offset"][k])) * s for k in range(3)],
-            "tilt_deg": float(cp["steering_column_tilt_deg"]),
-            "radius_cm": float(cp["steering_wheel_radius"]) * s,
-        }
+        b.steering["angle"] = [(a + c) * 0.5 * b.steering["ratio"] for a, c in zip(fl, fr)]  # + = CCW from seat
 
     # every recorded camera (rig 0.7+) and which one was on screen
     b.cameras = []

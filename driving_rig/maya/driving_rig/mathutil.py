@@ -161,3 +161,40 @@ def vfov_to_focal_mm(vfov_deg, vertical_aperture_in=0.945):
     """Godot Camera3D.fov is vertical (keep_aspect = KEEP_HEIGHT). Maya camera with
     filmFit = vertical: focal = (aperture_mm / 2) / tan(vfov / 2)."""
     return (vertical_aperture_in * 25.4 * 0.5) / math.tan(math.radians(vfov_deg) * 0.5)
+
+
+# --- 4x4 matrices, Maya layout ------------------------------------------------
+# Flat 16-float lists, row-major, row vectors: p' = p * M, translation in [12:15].
+# This is what cmds.getAttr("node.worldMatrix[0]") returns and setAttr(type="matrix") takes.
+# Maya: worldMatrix = matrix * offsetParentMatrix * parent.worldMatrix.
+
+M4_IDENTITY = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+
+def m4_mul(a, b):
+    """a * b (row vectors: apply a, then b)."""
+    return [sum(a[r * 4 + k] * b[k * 4 + c] for k in range(4)) for r in range(4) for c in range(4)]
+
+
+def m4_inverse_affine(m):
+    """Inverse of an affine matrix (any rotation/scale/shear, last column 0 0 0 1)."""
+    a, b, c = m[0], m[1], m[2]
+    d, e, f = m[4], m[5], m[6]
+    g, h, i = m[8], m[9], m[10]
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(det) < 1e-18:
+        raise ValueError("matrix is singular (zero scale?)")
+    inv = [(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
+           (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+           (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det]
+    tx, ty, tz = m[12], m[13], m[14]
+    return [inv[0], inv[1], inv[2], 0.0,
+            inv[3], inv[4], inv[5], 0.0,
+            inv[6], inv[7], inv[8], 0.0,
+            -(tx * inv[0] + ty * inv[3] + tz * inv[6]),
+            -(tx * inv[1] + ty * inv[4] + tz * inv[7]),
+            -(tx * inv[2] + ty * inv[5] + tz * inv[8]), 1.0]
+
+
+def m4_close(a, b, tol=1e-6):
+    return max(abs(x - y) for x, y in zip(a, b)) <= tol

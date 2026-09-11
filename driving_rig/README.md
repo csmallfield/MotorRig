@@ -1,4 +1,4 @@
-# Driving Rig — v0.7.0
+# Driving Rig — v0.8.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -119,6 +119,28 @@ straight in the channel box — any time after import. Spin re-solve and the rad
 in world space, so they stay correct at any scale. Rigs imported before 0.7 are adopted into the
 group the first time it's created.
 
+**Your own car model** (*Driving Rig ▸ Car Model*):
+
+1. **Create Bind Car** with the take rig selected: a static, unanimated copy in `<ns>_bind:` —
+   parked level at the origin, sitting on its tyres at static ride height (weight ÷ spring
+   rate), wheels straight, steering centred. It displays in reference mode (visible, not
+   selectable) so you can snap to it.
+2. Line your model up with it, organised in groups named `chassis`, `wheel_FL`, `wheel_FR`,
+   `wheel_RL`, `wheel_RR` and optionally `steering_wheel`. Case, namespaces and a `_grp`/`_geo`
+   suffix are ignored; nesting is fine (a steering wheel inside the chassis group, meshes
+   named `chassis_geo`…). **Create Model Groups** makes the empty named groups, already placed.
+   Scale and move the model's top group freely.
+3. Select the model's top group and the rig, **Attach Model**. Each group is parented under
+   its animated node — chassis → `chassis`, wheels → `wheel_XX_spin` (so they steer, compress
+   and spin about the rig's wheel centre, whatever your pivots), steering wheel →
+   `steering_wheel` — with the bind-to-model offset in its `offsetParentMatrix`. Your groups'
+   own values, pivots and any animation are untouched; nothing is baked. The proxy geometry
+   hides (`root.proxyVisibility`) and so does the bind car.
+
+**Detach Model** puts every group back exactly where you placed it (re-fit, re-attach).
+Deleting a rig detaches its model first — it never deletes your car. One model per rig at a
+time: duplicate the model for another take.
+
 **Cameras in Maya:** `take_cam` switches like the take did; the dialog's *Import every recorded
 camera* adds `cameras/cam_chase … cam_orbit`, and the root gets an enum `activeCamera` keyed
 (stepped) to what was on screen — ready to drive a camera sequencer. The steering wheel is
@@ -150,7 +172,8 @@ drv_hero:root                  move/rotate the whole take from here
 
     "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" -m unittest discover -s maya/tests -v
 
-67 tests: the take reader (bit-for-bit vs Godot), the scene reader (Godot-written fixture:
+82 tests (39 inside Maya), including the car-model workflow at world scale 1.0 and 0.1 with a
+moved/scaled/rotated model group, nested layouts, detach and delete-keeps-model. Also: the take reader (bit-for-bit vs Godot), the scene reader (Godot-written fixture:
 winding, baked transforms, take contacts on the ground), the maths core (Euler conventions
 through gimbal, spin solve, radius check), hygiene (Windows-safe text), and 23 that run inside
 headless Maya — convention proof under large rotations, wheel positions, metres/Z-up scenes,

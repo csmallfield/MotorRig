@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0 — your own car model in Maya
+
+- **Create Bind Car:** static copy of a take rig at rest (`<ns>_bind:`), level at the origin on
+  its tyres at static ride height; reference display. Built from metadata now stored on the
+  rig root (`drvMeta`), falling back to the take file for older rigs.
+- **Create Model Groups:** empty, correctly named groups placed at the bind car's parts.
+- **Attach Model:** parents `chassis`, `wheel_FL/FR/RL/RR` and optional `steering_wheel` under
+  the animated rig via `offsetParentMatrix` - exact, nothing baked, pivots/animation untouched.
+  Forgiving names; top-most match wins for nested layouts; offsets measured before anything
+  moves. **Detach Model** restores exactly (parents tracked by UUID).
+- `root.proxyVisibility` switch; *Toggle Proxy Geometry*. Deleting a rig detaches its model first.
+- 8 new Maya tests; test fake gained UUIDs and offsetParentMatrix.
+
 ## 0.7.1 — Maya fix
 
 - **Fix:** the first take or scene imported into a Maya scene raised `TypeError: 'NoneType'

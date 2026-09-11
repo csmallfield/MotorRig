@@ -508,6 +508,164 @@ class MayaImport(unittest.TestCase):
         self.assertFalse(c.objExists(ns + ":steering_wheel"))
         self.assertTrue(c.objExists(ns + ":take_cam"))
 
+    # --- car model: bind car, attach, detach ----------------------------------
+
+    def _bind_setup(self, world_scale=1.0):
+        from driving_rig import bind
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False, world_scale=world_scale)
+        return root, bind.create_bind_car(root)
+
+    def test_bind_car_at_rest(self):
+        from driving_rig import mayautil
+        c = self.cmds
+        root, broot = self._bind_setup()
+        bns = self._ns(broot)
+        meta = take_io.load(CAMS).meta
+        self.assertEqual(bns, self._ns(root) + "_bind")
+        self.assertEqual(c.ls(bns + ":*", type="animCurve"), [])             # nothing animated
+        self.assertEqual(len(self.importer.list_rigs()), 1)                   # not a take rig
+        self.assertEqual(c.listRelatives(broot, parent=True)[0], mayautil.WORLD)
+        r = meta["wheel_radius"] * 100.0
+        for i, w in enumerate(take_io.WHEELS):
+            m = c.getAttr("%s:wheel_%s_susp.worldMatrix[0]" % (bns, w))
+            self.assertAlmostEqual(m[13] - r, 0.0, delta=0.05)                # tyre on y = 0
+            self.assertAlmostEqual(m[12], meta["hardpoints"][i][0] * 100.0, places=3)
+            self.assertAlmostEqual(m[14], meta["hardpoints"][i][2] * 100.0, places=3)
+        chs = c.getAttr(bns + ":chassis.worldMatrix[0]")
+        self.assertLess(mu.v_len(mu.v_sub((chs[4], chs[5], chs[6]), (0.0, 1.0, 0.0))), 1e-9)   # level
+        comp = bake.static_compression(meta)[0]
+        self.assertAlmostEqual(c.getAttr(bns + ":wheel_FL_susp.translateY"), -(meta["susp_rest"] - comp) * 100.0, places=3)
+        self.assertTrue(c.objExists(bns + ":steering_wheel"))
+
+    # What each group must follow - written out here, independent of bind.PARTS, so a wrong
+    # table can't agree with itself. Wheels follow the SPIN node (steer + suspension + spin).
+    FOLLOWS = {"chassis": "chassis", "wheel_FL": "wheel_FL_spin", "wheel_FR": "wheel_FR_spin",
+               "wheel_RL": "wheel_RL_spin", "wheel_RR": "wheel_RR_spin", "steering_wheel": "steering_wheel"}
+
+    def _expect_follow(self, root, broot, parts, before, done, frames):
+        c = self.cmds
+        ns, bns = self._ns(root), self._ns(broot)
+        worst = 0.0
+        for fr in frames:
+            for part, node in self.FOLLOWS.items():
+                if part not in done:
+                    continue
+                bind_w = c.getAttr("%s:%s.worldMatrix[0]" % (bns, node))
+                anim_w = c.getAttr("%s:%s.worldMatrix[0]" % (ns, node), time=fr)
+                want = mu.m4_mul(mu.m4_mul(before[part], mu.m4_inverse_affine(bind_w)), anim_w)
+                got = c.getAttr(done[part] + ".worldMatrix[0]", time=fr)
+                worst = max(worst, max(abs(a - b) for a, b in zip(want, got)))
+        return worst
+
+    def test_attached_model_follows_the_rig(self):
+        """Every part = its placement against the bind car, carried by the animated rig:
+        chassis motion, wheel steer + suspension + spin, steering wheel - at 1.0 and 0.1 world
+        scale, with the model's top group moved/scaled/rotated (as you would to fit a model)
+        and one wheel group rotated off-axis."""
+        from driving_rig import bind
+        c = self.cmds
+        for ws in (1.0, 0.1):
+            c.file(new=True, force=True)
+            root, broot = self._bind_setup(ws)
+            model = bind.create_model_groups(root)
+            parts = bind.find_parts(model)
+            c.setAttr(model + ".translate", 40.0, 5.0, -20.0)
+            c.setAttr(model + ".scale", 1.7, 1.7, 1.7)
+            c.setAttr(model + ".rotateY", 20.0)
+            c.setAttr(parts["wheel_RR"] + ".rotateY", 30.0)
+            before = {p: c.getAttr(n + ".worldMatrix[0]") for p, n in parts.items()}
+            done = bind.attach_model(model, root)
+            self.assertEqual(sorted(done), sorted(["chassis", "steering_wheel"] + ["wheel_%s" % w for w in take_io.WHEELS]))
+            self.assertLess(self._expect_follow(root, broot, parts, before, done, (993, 1010, 1025, 1032)), 1e-3, ws)
+            self.assertFalse(c.getAttr(root + ".proxyVisibility"))
+            self.assertFalse(c.getAttr(broot + ".visibility"))
+            # wheels really spin: the FL group's rotation changes between frames
+            a = c.getAttr(done["wheel_FL"] + ".worldMatrix[0]", time=1001)
+            b = c.getAttr(done["wheel_FL"] + ".worldMatrix[0]", time=1020)
+            self.assertGreater(abs(a[5] - b[5]) + abs(a[6] - b[6]), 0.01 * ws)
+
+    def test_nested_model_layout(self):
+        """The common layout: steering_wheel inside the chassis group, meshes named after their
+        groups (chassis_geo in chassis). Top-most match wins; every part still follows its own
+        rig node; detach puts the steering wheel back inside the chassis group."""
+        from driving_rig import bind
+        c = self.cmds
+        root, broot = self._bind_setup()
+        model = bind.create_model_groups(root)
+        parts = bind.find_parts(model)
+        c.parent(parts["steering_wheel"], parts["chassis"], relative=True)   # chassis at origin: same place
+        geo = c.polyCube(constructionHistory=False)[0]
+        geo = c.rename(geo, "chassis_geo")
+        c.parent(geo, parts["chassis"], relative=True)
+        c.setAttr(model + ".scale", 1.3, 1.3, 1.3)
+        parts = bind.find_parts(model)                                      # no "duplicate chassis"
+        self.assertTrue(parts["chassis"].endswith("|chassis"))
+        before = {p: c.getAttr(n + ".worldMatrix[0]") for p, n in parts.items()}
+        done = bind.attach_model(model, root)
+        self.assertLess(self._expect_follow(root, broot, parts, before, done, (993, 1015, 1032)), 1e-3)
+        bind.detach_model(root)
+        sw = bind.find_parts(model)["steering_wheel"]
+        self.assertEqual(c.listRelatives(sw, parent=True)[0], "chassis")
+        self.assertLess(max(abs(a - b) for a, b in zip(c.getAttr(sw + ".worldMatrix[0]"), before["steering_wheel"])), 1e-6)
+
+    def test_detach_restores_exactly(self):
+        from driving_rig import bind
+        c = self.cmds
+        root, broot = self._bind_setup()
+        model = bind.create_model_groups(root)
+        parts = bind.find_parts(model)
+        before = {p: c.getAttr(n + ".worldMatrix[0]") for p, n in parts.items()}
+        bind.attach_model(model, root)
+        with self.assertRaises(bind.BindError):
+            bind.attach_model(model, root)                                     # already attached
+        back = bind.detach_model(root)
+        self.assertEqual(len(back), len(parts))
+        for p, n in bind.find_parts(model).items():
+            self.assertLess(max(abs(a - b) for a, b in zip(c.getAttr(n + ".worldMatrix[0]", time=1020), before[p])), 1e-6)
+            self.assertFalse(c.attributeQuery("drvAttachedTo", node=n, exists=True))
+        self.assertTrue(c.getAttr(root + ".proxyVisibility"))
+
+    def test_deleting_the_rig_keeps_the_model(self):
+        from driving_rig import bind
+        c = self.cmds
+        root, broot = self._bind_setup()
+        model = bind.create_model_groups(root)
+        bind.attach_model(model, root)
+        ns = self._ns(root)
+        self.importer.delete_rig(root)
+        self.assertFalse(c.namespace(exists=":" + ns))
+        self.assertFalse(c.namespace(exists=":" + ns + "_bind"))
+        self.assertEqual(len(bind.find_parts(model)), 6)                          # all still there
+
+    def test_part_names_are_forgiving_and_errors_clear(self):
+        from driving_rig import bind
+        c = self.cmds
+        c.namespace(add="mdl", parent=":")
+        top = c.createNode("transform", name="mdl:carA", skipSelect=True)
+        for n in ("mdl:Chassis_GRP", "mdl:wheel_fl_geo", "mdl:Wheel_FR", "mdl:WHEEL_RL", "mdl:wheel_RR_group"):
+            c.createNode("transform", name=n, parent=top, skipSelect=True)
+        self.assertEqual(sorted(bind.find_parts(top)), sorted(bind.REQUIRED))
+        c.delete("mdl:WHEEL_RL")
+        with self.assertRaises(bind.BindError) as cm:
+            bind.find_parts(top)
+        self.assertIn("Missing: wheel_RL", str(cm.exception))
+        self.assertIn("Found:", str(cm.exception))
+
+    def test_attach_needs_a_bind_car(self):
+        from driving_rig import bind
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
+        with self.assertRaises(bind.BindError) as cm:
+            bind.attach_model("anything", root)
+        self.assertIn("bind car", str(cm.exception))
+
+    def test_bind_car_for_rig_imported_before_0_8(self):
+        """No stored meta on the rig: falls back to reading the take file."""
+        from driving_rig import bind
+        c = self.cmds
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
+        c.deleteAttr(root + ".drvMeta")
+        self.assertTrue(c.objExists(bind.create_bind_car(root)))
+
     # --- housekeeping ------------------------------------------------------
 
     def test_curves_live_in_namespace_and_delete_cleans_up(self):

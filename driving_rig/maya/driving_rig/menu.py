@@ -87,6 +87,70 @@ def _check(*_):
     _run(go)
 
 
+def _bind_car(*_):
+    from . import bind
+
+    def go():
+        b = bind.create_bind_car()
+        cmds.select(clear=True)
+        cmds.confirmDialog(title="Driving Rig", button=["OK"], message=(
+            "Bind car created: %s\n\nParked at the origin at ride height, wheels straight. Line your "
+            "model up with it, in groups named chassis, wheel_FL, wheel_FR, wheel_RL, wheel_RR "
+            "(and optionally steering_wheel) - or use Create Model Groups. Then select the model "
+            "group and the rig and Attach Model." % b))
+    _run(go)
+
+
+def _model_groups(*_):
+    from . import bind
+    _run(bind.create_model_groups)
+
+
+def _split_selection():
+    from . import bind, importer
+    sel = cmds.ls(selection=True, long=True) or []
+    rigs = [importer.find_rig_root(n) for n in sel]
+    rig_root = next((r for r in rigs if r), None)
+    model = next((n for n, r in zip(sel, rigs) if not r), None)
+    if rig_root is None and len(importer.list_rigs()) == 1:
+        rig_root = importer.list_rigs()[0]
+    if model is None or rig_root is None:
+        raise bind.BindError("Select the model's top group and the take rig (any node of it).")
+    return model, rig_root
+
+
+def _attach(*_):
+    from . import bind
+
+    def go():
+        model, rig_root = _split_selection()
+        done = bind.attach_model(model, rig_root)
+        cmds.confirmDialog(title="Driving Rig", button=["OK"], message="Attached to %s:\n  %s" % (
+            rig_root.split("|")[-1], "\n  ".join("%s -> %s" % (p, n.split("|")[-1]) for p, n in done.items())))
+    _run(go)
+
+
+def _detach(*_):
+    from . import bind
+
+    def go():
+        back = bind.detach_model()
+        cmds.confirmDialog(title="Driving Rig", button=["OK"],
+                           message="Detached %d groups; they're back where you placed them." % len(back))
+    _run(go)
+
+
+def _toggle_proxy(*_):
+    from . import importer
+
+    def go():
+        root = importer.find_rig_root()
+        if not root:
+            raise RuntimeError("Select a Driving Rig first.")
+        cmds.setAttr(root + ".proxyVisibility", not cmds.getAttr(root + ".proxyVisibility"))
+    _run(go)
+
+
 def _select_root(*_):
     from . import importer
     root = importer.find_rig_root()
@@ -129,6 +193,15 @@ def create_menu():
                   annotation="Effective wheel radius vs the take - catches radius / scale / contact errors")
     cmds.menuItem(label="World Scale...", command=_world_scale,
                   annotation="Scale every Driving Rig import at once (DrivingRig_world.worldScale)")
+    cmds.menuItem(label="Car Model", subMenu=True, tearOff=True)
+    cmds.menuItem(label="1  Create Bind Car (selected rig)", command=_bind_car,
+                  annotation="Static copy of the rig at rest, to line your model up against")
+    cmds.menuItem(label="2  Create Model Groups (optional)", command=_model_groups,
+                  annotation="Empty, correctly named groups at the bind car's parts")
+    cmds.menuItem(label="3  Attach Model (select model group + rig)", command=_attach)
+    cmds.menuItem(label="Detach Model (selected rig)", command=_detach)
+    cmds.menuItem(label="Toggle Proxy Geometry (selected rig)", command=_toggle_proxy)
+    cmds.setParent("..", menu=True)
     cmds.menuItem(label="Select Rig Root", command=_select_root)
     cmds.menuItem(label="Delete Rig / Scene...", command=_delete)
     cmds.menuItem(divider=True)

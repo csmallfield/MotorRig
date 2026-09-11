@@ -10,6 +10,7 @@ delete_rig(root) to remove an import; everything lives in its own namespace.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 
@@ -105,6 +106,8 @@ def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_rang
         add_attr(root, "drvUnitScale", take.unit_scale)
         add_attr(root, "drvSpinMode", "solved" if solve else "recorded", "string")
         add_attr(root, "drvCollisionSource", str(take.meta.get("collision_source", "")), "string")
+        add_attr(root, "drvMeta", json.dumps(take.meta), "string")   # bind car needs it, even if the take moves
+        _proxy_switch(root, ns)
         if set_range:
             cmds.playbackOptions(minTime=frames[0], maxTime=frames[-1],
                                  animationStartTime=frames[0], animationEndTime=frames[-1])
@@ -302,13 +305,37 @@ def _ground_mismatch(source, other_attr):
 
 
 def delete_rig(root=None):
-    """Delete a take rig or an imported scene (whichever the selection belongs to)."""
+    """Delete a take rig or an imported scene (whichever the selection belongs to). A car model
+    attached to the rig is detached first - never deleted with it - and the bind car goes too."""
     root = find_rig_root(root) or _find_scene_root(root)
     if not root:
         return False
     ns = namespace_of(root)
+    if cmds.attributeQuery(RIG_ATTR, node=root, exists=True):
+        from . import bind
+        if bind.attached_parts(root):
+            bind.detach_model(root)
+        bns = bind.bind_namespace(ns)
+        if cmds.namespace(exists=":" + bns):
+            cmds.namespace(removeNamespace=":" + bns, deleteNamespaceContent=True)
     cmds.namespace(removeNamespace=":" + ns, deleteNamespaceContent=True)
     return True
+
+
+PROXY_GEO = ["body_geo", "nose_geo", "steering_rim_geo", "steering_spoke_geo", "steering_marker_geo"] + \
+    ["wheel_%s_geo" % w for w in WHEELS]
+
+
+def _proxy_switch(root, ns):
+    """root.proxyVisibility drives the proxy cube/cylinders (off once a real model is attached)."""
+    if not cmds.attributeQuery("proxyVisibility", node=root, exists=True):
+        cmds.addAttr(root, longName="proxyVisibility", attributeType="bool", defaultValue=1.0)
+        cmds.setAttr(root + ".proxyVisibility", True)
+        cmds.setAttr(root + ".proxyVisibility", channelBox=True)
+    for g in PROXY_GEO:
+        n = "%s:%s" % (ns, g)
+        if cmds.objExists(n) and not cmds.listConnections(n + ".visibility", source=True, destination=False):
+            cmds.connectAttr(root + ".proxyVisibility", n + ".visibility")
 
 
 def list_rigs():
