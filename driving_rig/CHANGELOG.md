@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0 — cameras, steering wheel, custom chassis, Maya world scale
+
+- **Cameras:** seven new ones (heli, front tracking, Russian-arm side, wheel mount, bumper,
+  trackside broadcast, orbit) alongside chase and driver. C / Y cycles, 1-9 jump; all follow
+  the replay ghost too. Ground-clamped. The HUD names the camera on each switch.
+- **All cameras recorded** every tick (`cams.*`) plus the active camera (`camera.active`).
+  Optional v2 channels — older takes load everywhere. `record_all_cameras` on the Recorder.
+  Export keeps whatever the source take had.
+- **Steering wheel** in the car (and the replay ghost): steer x `steering_ratio`, CCW when
+  turning left. Profile: ratio, radius, offset from the driver's eye, column tilt.
+- **Custom chassis:** `chassis_scene` + `chassis_transform` in the car profile replace the
+  proxy box (collider unchanged); `hide_chassis_in_driver_cam`. Ghost rebuilds it.
+- **Maya:** `DrivingRig_world` group with `worldScale` (dialog, menu, channel box; adopts older
+  imports); every recorded camera imported plus a stepped `activeCamera` enum; steering wheel
+  rig. Spin re-solve verified at any world scale.
+- Tests: `cameras`, `camera_record`, `steering_wheel`, `custom_chassis` (Godot), 7 new Maya
+  tests, a second Godot-written fixture take with all cameras. 37 Godot tests.
+
 ## 0.6.0 — car & world profiles, start menu
 
 - **Car profiles** (`CarProfile` .tres): all car tuning + name, description, body colour,

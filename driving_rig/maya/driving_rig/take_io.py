@@ -30,29 +30,34 @@ FORMAT_NAME = "driving_rig_take"
 SUPPORTED_VERSIONS = (2,)
 WHEELS = ("FL", "FR", "RL", "RR")
 
-# name -> (per_wheel, components, is_flag). Mirrors TakeFormat.CHANNELS in the Godot project.
+# name -> (group, components, is_flag). group: None, "wheel" (4, FL FR RL RR) or "cam" (one per
+# entry of meta["camera_names"]). Mirrors TakeFormat.CHANNELS in the Godot project.
 CHANNELS = {
-    "chassis.p": (False, 3, False),
-    "chassis.q": (False, 4, False),
-    "vel": (False, 3, False),
-    "angvel": (False, 3, False),
-    "input.throttle": (False, 1, False),
-    "input.brake": (False, 1, False),
-    "input.steer": (False, 1, False),
-    "input.handbrake": (False, 1, True),
-    "camera.p": (False, 3, False),
-    "camera.q": (False, 4, False),
-    "camera.fov": (False, 1, False),
-    "wheels.compression": (True, 1, False),
-    "wheels.steer": (True, 1, False),
-    "wheels.spin_cumulative": (True, 1, False),
-    "wheels.grounded": (True, 1, True),
-    "wheels.contact_p": (True, 3, False),
-    "wheels.contact_n": (True, 3, False),
-    "wheels.slip_long": (True, 1, False),
-    "wheels.slip_lat": (True, 1, False),
+    "chassis.p": (None, 3, False),
+    "chassis.q": (None, 4, False),
+    "vel": (None, 3, False),
+    "angvel": (None, 3, False),
+    "input.throttle": (None, 1, False),
+    "input.brake": (None, 1, False),
+    "input.steer": (None, 1, False),
+    "input.handbrake": (None, 1, True),
+    "camera.p": (None, 3, False),
+    "camera.q": (None, 4, False),
+    "camera.fov": (None, 1, False),
+    "wheels.compression": ("wheel", 1, False),
+    "wheels.steer": ("wheel", 1, False),
+    "wheels.spin_cumulative": ("wheel", 1, False),
+    "wheels.grounded": ("wheel", 1, True),
+    "wheels.contact_p": ("wheel", 3, False),
+    "wheels.contact_n": ("wheel", 3, False),
+    "wheels.slip_long": ("wheel", 1, False),
+    "wheels.slip_lat": ("wheel", 1, False),
+    "cams.p": ("cam", 3, False),          # every camera (rig 0.7+, when recorded)
+    "cams.q": ("cam", 4, False),
+    "cams.fov": ("cam", 1, False),
+    "camera.active": (None, 1, False),    # index into meta["camera_names"], -1 = none
 }
-OPTIONAL = {"camera.p", "camera.q", "camera.fov"}
+OPTIONAL = {"camera.p", "camera.q", "camera.fov", "cams.p", "cams.q", "cams.fov", "camera.active"}
 
 
 class TakeError(ValueError):
@@ -84,6 +89,16 @@ class Take(object):
 
     def __contains__(self, name):
         return name in self.channels
+
+    @property
+    def camera_names(self):
+        """Names of the recorded cameras, in channel order ([] for takes before rig 0.7)."""
+        return list(self.meta.get("camera_names", [])) if "cams.p" in self.channels else []
+
+    def camera(self, name, channel="cams.p"):
+        """One recorded camera's channel, by name ('heli') or index."""
+        i = self.camera_names.index(name) if isinstance(name, str) else int(name)
+        return self[channel][i]
 
     def wheel(self, wheel, name):
         """Per-wheel channel for one wheel, by name ('FL') or index (0)."""
@@ -181,15 +196,17 @@ def validate(root):
     if not (isinstance(hp, list) and len(hp) == 4 and all(isinstance(h, list) and len(h) == 3 for h in hp)):
         e.append("meta.hardpoints: expected 4 x [x,y,z]")
     chs = root.get("channels", {})
-    for name, (per_wheel, comps, flag) in CHANNELS.items():
+    ncam = len(meta.get("camera_names", []))
+    for name, (group, comps, flag) in CHANNELS.items():
         v = chs.get(name)
         if v is None:
             if name not in OPTIONAL:
                 e.append("channels.%s missing" % name)
             continue
-        outer = v if per_wheel else [v]
-        if per_wheel and len(v) != 4:
-            e.append("channels.%s: expected 4 wheels" % name)
+        count = {"wheel": 4, "cam": ncam}.get(group)
+        outer = v if group else [v]
+        if group and (len(v) != count or count == 0):
+            e.append("channels.%s: expected %d entries" % (name, count))
             continue
         for item in outer:
             series = [item] if comps == 1 else item

@@ -18,6 +18,16 @@ enum Drive { RWD, FWD, AWD }
 ## different rate — spring behaviour is rate-dependent.
 @export var tuned_at_hz: int = 240
 
+@export_group("Chassis model")
+## Your own body model (a .tscn, or an imported .glb/.gltf/.blend scene). Empty = the proxy box.
+## Visual only: the collider is still the box from body_size, so size that to match.
+@export var chassis_scene: PackedScene
+## Offset / rotation / scale to fit the model to the car (car space: -Z forward, Y up, metres).
+@export var chassis_transform: Transform3D = Transform3D.IDENTITY
+## Hide the model from the driver cam (right for the solid proxy box; turn off for a model
+## with a modelled interior and see-through glass).
+@export var hide_chassis_in_driver_cam: bool = true
+
 @export_group("Dimensions")
 @export var mass: float = 1200.0
 @export var body_size: Vector3 = Vector3(1.3, 1.0, 4.4)       ## full size, not half-extents
@@ -71,6 +81,15 @@ enum Drive { RWD, FWD, AWD }
 @export_range(0.0, 1.0) var handbrake_rear_grip: float = 0.55
 @export var drag_coefficient: float = 0.42    ## F = c * v^2 (x world air_density_scale)
 
+@export_group("Steering wheel")
+## Steering-wheel turns per road-wheel angle: 15 means 32 deg of lock = 480 deg (1.3 turns).
+@export var steering_ratio: float = 15.0
+@export var steering_wheel_radius: float = 0.19
+## Wheel centre relative to driver_eye (car space).
+@export var steering_wheel_offset: Vector3 = Vector3(0.0, -0.28, -0.5)
+## Column tilt back from vertical.
+@export var steering_column_tilt_deg: float = 20.0
+
 @export_group("Steering")
 @export var max_steer_deg: float = 32.0
 @export var steer_grip_margin_deg: float = 2.5
@@ -92,6 +111,10 @@ func to_dict() -> Dictionary:
 			d[p["name"]] = [v.r, v.g, v.b]
 		elif v is float or v is int or v is bool or v is String:
 			d[p["name"]] = v
+	d["chassis_scene"] = chassis_scene.resource_path if chassis_scene else ""
+	var t := chassis_transform
+	d["chassis_transform"] = [t.basis.x.x, t.basis.x.y, t.basis.x.z, t.basis.y.x, t.basis.y.y, t.basis.y.z,
+		t.basis.z.x, t.basis.z.y, t.basis.z.z, t.origin.x, t.origin.y, t.origin.z]
 	return d
 
 

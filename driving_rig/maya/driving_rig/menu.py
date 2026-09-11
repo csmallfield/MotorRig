@@ -47,6 +47,24 @@ def _import_scene(*_):
     _run(go)
 
 
+def _world_scale(*_):
+    from . import mayautil
+
+    def go():
+        cur = mayautil.get_world_scale()
+        res = cmds.promptDialog(title="Driving Rig - World Scale", button=["Set", "Cancel"],
+                                message="DrivingRig_world.worldScale\n1.0 = true size (cm)   0.1 = one unit per 10 cm",
+                                text=str(cur if cur is not None else 1.0), defaultButton="Set",
+                                cancelButton="Cancel", dismissString="Cancel")
+        if res == "Set":
+            value = float(cmds.promptDialog(query=True, text=True))
+            if value <= 0.0:
+                raise ValueError("World scale must be greater than 0")
+            mayautil.world_group(value)
+            cmds.select(mayautil.WORLD)
+    _run(go)
+
+
 def _resolve(*_):
     from . import importer
 
@@ -109,6 +127,8 @@ def create_menu():
                   annotation="Rebuild wheel spin from the car's travel in the scene - after retimes/offsets")
     cmds.menuItem(label="Check Spin (selected rig)", command=_check,
                   annotation="Effective wheel radius vs the take - catches radius / scale / contact errors")
+    cmds.menuItem(label="World Scale...", command=_world_scale,
+                  annotation="Scale every Driving Rig import at once (DrivingRig_world.worldScale)")
     cmds.menuItem(label="Select Rig Root", command=_select_root)
     cmds.menuItem(label="Delete Rig / Scene...", command=_delete)
     cmds.menuItem(divider=True)

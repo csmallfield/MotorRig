@@ -18,8 +18,9 @@ from maya import cmds
 import maya.api.OpenMaya as om
 
 from . import __version__, bake, mathutil as mu, rig, scene_io, take_io
-from .mayautil import (RIG_ATTR, add_attr, all_rig_roots, exact_fps, find_rig_root, mtime_unit,
-                       namespace_of, scene_units, set_scene_fps, world_matrix, write_curve)
+from .mayautil import (RIG_ATTR, SCENE_ATTR, add_attr, all_rig_roots, all_scene_roots, exact_fps,
+                       find_rig_root, mtime_unit, namespace_of, scene_units, set_scene_fps,
+                       world_group, world_matrix, write_curve)
 from .take_io import WHEELS
 
 
@@ -32,8 +33,10 @@ def take_stem(path):
 
 
 def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_range=True,
-                camera=True, contacts=True, solve=True, verbose=True):
-    """Build a rig for the take at `path` and key it. Returns the rig root node."""
+                camera=True, contacts=True, solve=True, all_cameras=True, steering_wheel=True,
+                world_scale=None, verbose=True):
+    """Build a rig for the take at `path` and key it. Returns the rig root node.
+    world_scale: set DrivingRig_world.worldScale (None = leave it as it is)."""
     take = take_io.load(path)
     rate = exact_fps(fps)
     b = bake.bake(take, fps=rate, in_frame=in_frame, solve=solve)
@@ -45,8 +48,10 @@ def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_rang
         if set_fps:
             set_scene_fps(fps)
         ns = rig.unique_namespace(name)
+        cam_names = [c["name"] for c in b.cameras] if all_cameras else []
         nodes = rig.build(take.meta, ns, camera=camera and b.camera is not None,
-                          contacts=contacts, version=__version__)
+                          contacts=contacts, version=__version__, camera_names=cam_names,
+                          steering=b.steering if steering_wheel else None)
         root = nodes["root"]
         ch = nodes["chassis"]
 
@@ -71,6 +76,19 @@ def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_rang
                 key(loc, "grounded", d["grounded"], "step")
                 key(loc, "slipLong", d["slip_long"])
                 key(loc, "slipLat", d["slip_lat"])
+        if "steering" in nodes:
+            key(nodes["steering"], "rotateZ", b.steering["angle"])
+        for (cam_t, cam_s), c in zip(nodes.get("cams", []), b.cameras):
+            for k, ax in enumerate("XYZ"):
+                key(cam_t, "translate" + ax, c["t"][k])
+                key(cam_t, "rotate" + ax, c["r"][k])
+            key(cam_s, "focalLength", c["focal"])
+        if b.active_camera is not None:
+            names = [c["name"] for c in b.cameras] or list(take.meta.get("camera_names", []))
+            if names:
+                cmds.addAttr(root, longName="activeCamera", attributeType="enum",
+                             enumName=":".join(["none"] + names), keyable=True)
+                key(root, "activeCamera", [int(v) + 1 for v in b.active_camera], "step")
         if "camera" in nodes:
             cam = nodes["camera"]
             for k, ax in enumerate("XYZ"):
@@ -90,6 +108,7 @@ def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_rang
         if set_range:
             cmds.playbackOptions(minTime=frames[0], maxTime=frames[-1],
                                  animationStartTime=frames[0], animationEndTime=frames[-1])
+        root = cmds.parent(root, world_group(world_scale), relative=True)[0]
 
     report = _format_report(name, b.spin_report, b.radius_warn)
     warn = _ground_mismatch(str(take.meta.get("collision_source", "")), SCENE_ATTR)
@@ -200,10 +219,7 @@ def check_spin(root=None, verbose=True):
 
 # === scene geometry =========================================================
 
-SCENE_ATTR = "drvScene"
-
-
-def import_scene(path, name=None, verbose=True):
+def import_scene(path, name=None, world_scale=None, verbose=True):
     """Build the exported scene (scene.json + OBJs) in Maya, in the takes' space: world,
     centimetres, Y-up (rotated for Z-up scenes). Meshes are created through the API from our
     own reader, so the result doesn't depend on OBJ-importer unit settings. Returns the group."""
@@ -219,6 +235,7 @@ def import_scene(path, name=None, verbose=True):
             cmds.setAttr(grp + ".rotateX", 90.0)
         for obj in scene.objects:
             _build_mesh(obj, ns, grp)
+        grp = cmds.parent(grp, world_group(world_scale), relative=True)[0]
     lines = ["Imported scene %s - %d objects (%s)" % (base, len(scene.objects), ", ".join(
         "%s%s" % (o.name, "" if o.collides else " [visual only]") for o in scene.objects))]
     warn = _ground_mismatch(scene.collision_source, RIG_ATTR)
@@ -269,11 +286,6 @@ def _find_scene_root(node=None):
         parents = cmds.listRelatives(node, parent=True, fullPath=True)
         node = parents[0] if parents else None
     return None
-
-
-def all_scene_roots():
-    return [n for n in (cmds.ls(type="transform", long=True) or [])
-            if cmds.attributeQuery(SCENE_ATTR, node=n, exists=True)]
 
 
 def _ground_mismatch(source, other_attr):

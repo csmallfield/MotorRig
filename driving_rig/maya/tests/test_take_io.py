@@ -45,7 +45,8 @@ class TakeIoContract(unittest.TestCase):
         t = self.take
         checked = 0
         for name, per_sample in self.expected["values"].items():
-            per_wheel, comps, _ = take_io.CHANNELS[name]
+            group, comps, _ = take_io.CHANNELS[name]
+            per_wheel = group == "wheel"
             for k, i in enumerate(self.expected["samples"]):
                 for w, comp_vals in enumerate(per_sample[k]):
                     for c, want in enumerate(comp_vals):
@@ -122,6 +123,11 @@ class TakeIoContract(unittest.TestCase):
         arrs = self.take.as_numpy()
         self.assertEqual(arrs["wheels.contact_p"].shape, (4, 3, 400))
         self.assertEqual(arrs["chassis.q"].shape, (4, 400))
+
+    def test_old_take_has_no_camera_set(self):
+        """The fixture predates per-camera recording: optional channels simply absent."""
+        self.assertEqual(self.take.camera_names, [])
+        self.assertNotIn("cams.p", self.take)
 
 
 if __name__ == "__main__":

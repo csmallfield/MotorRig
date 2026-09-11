@@ -170,6 +170,15 @@
         },
         "created": {
           "type": "string"
+        },
+        "camera_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "all_cameras": {
+          "type": "boolean"
         }
       }
     },
@@ -396,6 +405,52 @@
           },
           "minItems": 4,
           "maxItems": 4
+        },
+        "cams.p": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "description": "one entry per meta.camera_names (rig 0.7+, optional)"
+        },
+        "cams.q": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        },
+        "cams.fov": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "camera.active": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -1
+          },
+          "description": "index into meta.camera_names; -1 = none"
         }
       }
     }

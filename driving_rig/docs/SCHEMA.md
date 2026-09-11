@@ -87,7 +87,9 @@ Spec schema fields plus:
 | `wheels.slip_long` | (ω·r − v_long) / max(\|v_long\|, 1 m/s). −1 = locked, + = wheelspin. |
 | `wheels.slip_lat` | slip angle, rad. |
 | `input.steer` | raw device, −1 left … +1 right (opposite sign to `wheels.steer`). |
-| `camera.*` | active camera (chase or driver) at that tick. Optional. |
+| `camera.*` | the camera on screen at that tick. Optional. |
+| `cams.p`, `cams.q`, `cams.fov` | every camera, one entry per `meta.camera_names` (shape (N, 3, n), (N, 4, n), (N, n)). Optional; rig 0.7+ with `record_all_cameras`. Precision 1 mm / 1e-5 / 0.01 deg. |
+| `camera.active` | index into `meta.camera_names` of the camera on screen, per tick; -1 = none (a replay's recorded camera, or takes before 0.7). |
 
 ### How the Maya importer solves spin (3.3)
 

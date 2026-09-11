@@ -327,7 +327,9 @@ func export_to(dst: String) -> void:
 		if r.has("error"):
 			_on_validated.call_deferred(dst, PackedStringArray(["read failed: " + str(r["error"])]))
 			return
-		var err := TakeFormat.write_take(dst, r["meta"], r["summary"], r["data"], r["n"], dst.ends_with(".gz"))
+		# keep per-camera channels only if the source take has them (older takes don't)
+		var cams := bool((r["meta"] as Dictionary).get("all_cameras", false))
+		var err := TakeFormat.write_take(dst, r["meta"], r["summary"], r["data"], r["n"], dst.ends_with(".gz"), cams)
 		if err != OK:
 			_on_validated.call_deferred(dst, PackedStringArray(["write failed: " + error_string(err)]))
 			return
@@ -560,7 +562,7 @@ func _build_ui() -> void:
 	_speed.item_selected.connect(func(i: int) -> void: _player.speed = [0.25, 0.5, 1.0, 2.0][i])
 	opts.add_child(_speed)
 	var hint := Label.new()
-	hint.text = "Y/C: chase ↔ recorded cam   X/P: play/pause"
+	hint.text = "Y/C: cycle cameras (1-9 jump, incl. recorded)   X/P: play/pause"
 	hint.modulate = Color(0.65, 0.65, 0.7)
 	hint.add_theme_font_size_override(&"font_size", 13)
 	opts.add_child(hint)

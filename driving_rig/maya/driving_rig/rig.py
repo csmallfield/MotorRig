@@ -51,7 +51,7 @@ def unique_namespace(base):
     return ns
 
 
-def build(meta, ns, camera=True, contacts=True, version="dev"):
+def build(meta, ns, camera=True, contacts=True, version="dev", camera_names=(), steering=None):
     s = float(meta.get("unit_scale", 100.0))
     ext = meta["body"]["extents"]
     r = float(meta["wheel_radius"]) * s
@@ -103,6 +103,13 @@ def build(meta, ns, camera=True, contacts=True, version="dev"):
             add_attr(loc, "slipLat", kind="double", keyable=True)
             nodes["wheels"][w]["contact"] = loc
 
+    if steering:
+        nodes["steering"] = _steering_wheel(ns, chassis, steering)
+
+    if camera_names:
+        grp = _group(ns, "cameras", root)
+        nodes["cams"] = [_camera(ns, "cam_%s" % n, grp) for n in camera_names]
+
     if camera:
         cam, shape = cmds.camera()
         cam = _parent(_named(cam, ns, "take_cam"), root)
@@ -116,3 +123,35 @@ def build(meta, ns, camera=True, contacts=True, version="dev"):
         nodes["camera"] = cam
         nodes["camera_shape"] = shape
     return nodes
+
+
+def _camera(ns, name, parent):
+    cam, shape = cmds.camera()
+    cam = _parent(_named(cam, ns, name), parent)
+    shape = cmds.rename(cmds.listRelatives(cam, shapes=True, fullPath=True)[0], "%s:%sShape" % (ns, name))
+    cmds.setAttr(cam + ".rotateOrder", mu.ROTATE_ORDER_ZXY)
+    cmds.setAttr(shape + ".filmFit", 2)
+    cmds.setAttr(shape + ".horizontalFilmAperture", 1.417)
+    cmds.setAttr(shape + ".verticalFilmAperture", 0.945)
+    cmds.setAttr(shape + ".nearClipPlane", 1.0)
+    cmds.setAttr(shape + ".farClipPlane", 200000.0)
+    return cam, shape
+
+
+def _steering_wheel(ns, chassis, st):
+    """column (at the wheel centre, tilted back) -> steering_wheel (animated rotateZ; +Z points
+    at the driver, so + = counter-clockwise from the seat = turning left) -> rim, spoke, marker."""
+    column = _group(ns, "steering_column", chassis)
+    cmds.setAttr(column + ".translate", *st["position_cm"])
+    cmds.setAttr(column + ".rotateX", -st["tilt_deg"])
+    wheel = _group(ns, "steering_wheel", column)
+    r = st["radius_cm"]
+    rim = cmds.polyTorus(radius=r, sectionRadius=1.6, subdivisionsAxis=32, subdivisionsHeight=8,
+                         axis=(0, 0, 1), constructionHistory=False)[0]
+    _parent(_named(rim, ns, "steering_rim_geo"), wheel)
+    spoke = cmds.polyCube(width=2.0 * r, height=2.5, depth=2.0, constructionHistory=False)[0]
+    _parent(_named(spoke, ns, "steering_spoke_geo"), wheel)
+    mark = cmds.polyCube(width=3.5, height=5.0, depth=4.0, constructionHistory=False)[0]
+    mark = _parent(_named(mark, ns, "steering_marker_geo"), wheel)
+    cmds.setAttr(mark + ".translateY", r)
+    return wheel

@@ -7,7 +7,7 @@ import traceback
 from maya import cmds
 
 from . import importer, take_io
-from .mayautil import FPS_CHOICES
+from .mayautil import FPS_CHOICES, get_world_scale
 
 WINDOW = "drivingRigImportWin"
 OPT = "drivingRig_"
@@ -36,7 +36,7 @@ class ImportDialog(object):
     def __init__(self):
         if cmds.window(WINDOW, exists=True):
             cmds.deleteUI(WINDOW)
-        self.win = cmds.window(WINDOW, title="Driving Rig - Import Take", widthHeight=(520, 330),
+        self.win = cmds.window(WINDOW, title="Driving Rig - Import Take", widthHeight=(540, 420),
                                sizeable=True)
         cmds.columnLayout(adjustableColumn=True, rowSpacing=6, columnOffset=("both", 10))
         cmds.separator(style="none", height=6)
@@ -52,11 +52,19 @@ class ImportDialog(object):
         cmds.optionMenuGrp(self.fps, edit=True, value=_fps_label(_opt("fps", 24.0)))
         self.in_frame = cmds.intFieldGrp(label="IN frame", value1=int(_opt("in_frame", 1001)),
                                          columnWidth2=(80, 120))
+        current = get_world_scale()   # an existing world group wins: never reset it silently
+        self.world_scale = cmds.floatFieldGrp(
+            label="World scale", precision=4, columnWidth2=(80, 120),
+            value1=current if current is not None else float(_opt("world_scale", 0.1)),
+            annotation="DrivingRig_world.worldScale - 1.0 = true size in cm, 0.1 = one unit per 10 cm. "
+                       "Change it any time in the channel box or Driving Rig > World Scale...")
         cmds.separator(height=8)
         self.cb = {}
         for key, label, default in (("set_fps", "Set scene frame rate", 1),
                                     ("set_range", "Set playback range to the take (with handles)", 1),
-                                    ("camera", "Import the take's camera", 1),
+                                    ("camera", "Import the take's camera (switches like the take)", 1),
+                                    ("all_cameras", "Import every recorded camera (9 angles)", 1),
+                                    ("steering_wheel", "Steering wheel", 1),
                                     ("contacts", "Contact locators (grounded / slip - FX triggers)", 1),
                                     ("solve", "Solve wheel spin from travel (else: recorded spin)", 1)):
             self.cb[key] = cmds.checkBox(label=label, value=bool(_opt(key, default)))
@@ -99,13 +107,16 @@ class ImportDialog(object):
         in_frame = cmds.intFieldGrp(self.in_frame, query=True, value1=True)
         opts = {k: cmds.checkBox(c, query=True, value=True) for k, c in self.cb.items()}
         name = cmds.textFieldGrp(self.name, query=True, text=True).strip() or None
+        world_scale = cmds.floatFieldGrp(self.world_scale, query=True, value1=True)
+        _set_opt("world_scale", world_scale)
         _set_opt("last_file", path)
         _set_opt("fps", fps)
         _set_opt("in_frame", in_frame)
         for k, v in opts.items():
             _set_opt(k, bool(v))
         try:
-            root = importer.import_take(path, fps=fps, in_frame=in_frame, name=name, **opts)
+            root = importer.import_take(path, fps=fps, in_frame=in_frame, name=name,
+                                        world_scale=world_scale, **opts)
         except Exception as ex:
             traceback.print_exc()
             cmds.confirmDialog(title="Driving Rig", message="Import failed:\n\n%s" % ex, button=["OK"])

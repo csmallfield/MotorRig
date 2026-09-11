@@ -32,6 +32,9 @@ const W_STRIDE: int = TakeFormat.W_STRIDE
 @export var takes_dir: String = "user://takes"
 ## Format v2 gzipped (.json.gz, ~11× smaller). Off → plain .json, same layout.
 @export var compress_takes: bool = true
+## Record all nine cameras every tick (~2x file size). Off: only the active camera is kept
+## (camera.*), plus which one was active (camera.active).
+@export var record_all_cameras: bool = true
 
 var state: State = State.IDLE
 var tick_hz: int = 240
@@ -168,6 +171,21 @@ func _capture(tick: int) -> void:
 		_buf[b + 22] = cq.z
 		_buf[b + 23] = cq.w
 		_buf[b + 24] = cam.fov
+	# every camera, in TakeFormat.CAMERA_NAMES order, plus which one is on screen
+	var cams := _cam_rig.cameras
+	for k in cams.size():
+		var cx := cams[k].global_transform
+		var cq := cx.basis.get_rotation_quaternion()
+		var co := b + TakeFormat.O_CAMS + k * TakeFormat.C_STRIDE
+		_buf[co] = cx.origin.x
+		_buf[co + 1] = cx.origin.y
+		_buf[co + 2] = cx.origin.z
+		_buf[co + 3] = cq.x
+		_buf[co + 4] = cq.y
+		_buf[co + 5] = cq.z
+		_buf[co + 6] = cq.w
+		_buf[co + 7] = cams[k].fov
+	_buf[b + TakeFormat.O_ACTIVE] = _cam_rig.active_index()
 	for w in 4:
 		var o := b + O_WHEELS + w * W_STRIDE
 		var cp := _car.wheel_contact_p[w]
@@ -239,7 +257,7 @@ func _write_take(path: String, meta: Dictionary, data: PackedFloat64Array, n: in
 	var in_i: int = meta["in_index"]
 	var out_i: int = meta["out_index"]
 	var summary := _summarize(data, n, in_i, out_i)
-	var err := TakeFormat.write_take(path, meta, summary, data, n, compress_takes)
+	var err := TakeFormat.write_take(path, meta, summary, data, n, compress_takes, record_all_cameras)
 	if err != OK:
 		_on_write_done.call_deferred(false, path, {}, error_string(err))
 		return

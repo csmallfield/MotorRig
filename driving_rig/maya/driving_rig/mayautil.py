@@ -12,6 +12,8 @@ import maya.api.OpenMayaAnim as oma
 from maya import cmds
 
 RIG_ATTR = "drvRig"
+SCENE_ATTR = "drvScene"
+WORLD = "DrivingRig_world"
 
 TANGENT = {
     "auto": oma.MFnAnimCurve.kTangentAuto,
@@ -140,6 +142,34 @@ def find_rig_root(node=None):
         parents = cmds.listRelatives(node, parent=True, fullPath=True)
         node = parents[0] if parents else None
     return None
+
+
+def world_group(scale=None):
+    """The shared world-scale group every rig and scene lives under. One attribute,
+    `worldScale`, drives uniform scale - change it any time (1.0 = true size in cm;
+    0.1 = one unit per 10 cm). Created on first use; adopts rigs/scenes from older imports."""
+    if not cmds.objExists(WORLD):
+        cmds.createNode("transform", name=WORLD, skipSelect=True)
+        cmds.addAttr(WORLD, longName="worldScale", attributeType="double", defaultValue=1.0,
+                     minValue=0.0001, keyable=True)
+        for ax in "XYZ":
+            cmds.connectAttr(WORLD + ".worldScale", WORLD + ".scale" + ax)
+            cmds.setAttr(WORLD + ".scale" + ax, keyable=False, channelBox=False)
+        for n in all_rig_roots() + all_scene_roots():
+            if not cmds.listRelatives(n, parent=True):
+                cmds.parent(n, WORLD, relative=True)
+    if scale is not None:
+        cmds.setAttr(WORLD + ".worldScale", float(scale))
+    return WORLD
+
+
+def get_world_scale():
+    return cmds.getAttr(WORLD + ".worldScale") if cmds.objExists(WORLD) else None
+
+
+def all_scene_roots():
+    return [n for n in (cmds.ls(type="transform", long=True) or [])
+            if cmds.attributeQuery(SCENE_ATTR, node=n, exists=True)]
 
 
 def all_rig_roots():

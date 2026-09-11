@@ -15,7 +15,14 @@ const O_INPUT: int = 13     # 4  throttle, brake, steer, handbrake
 const O_CAM: int = 17       # 8  p3, q4, fov
 const O_WHEELS: int = 25
 const W_STRIDE: int = 12    # compression, steer, spin, grounded, cp3, cn3, slip_long, slip_lat
-const STRIDE: int = O_WHEELS + W_STRIDE * 4   # 73
+## Every camera, every tick (v2 optional channels, since 0.7.0). Order is the contract:
+## the camera rig, the recorder, the file and the Maya importer all use it.
+const CAMERA_NAMES: PackedStringArray = ["chase", "driver", "heli", "front", "side", "wheel",
+	"bumper", "trackside", "orbit"]
+const O_CAMS: int = O_WHEELS + W_STRIDE * 4   # 73
+const C_STRIDE: int = 8                        # p3, q4, fov
+const O_ACTIVE: int = O_CAMS + C_STRIDE * 9    # index into CAMERA_NAMES (-1 = none)
+const STRIDE: int = O_ACTIVE + 1               # 146
 
 const SAMPLES_OPEN: String = '"samples":['
 const FORMAT_NAME: String = "driving_rig_take"
@@ -44,7 +51,29 @@ const CHANNELS: Array[Dictionary] = [
 	{"name": "wheels.contact_n", "off": 7, "comps": 3, "dec": 4, "wheel": true},
 	{"name": "wheels.slip_long", "off": 10, "comps": 1, "dec": 3, "wheel": true},
 	{"name": "wheels.slip_lat", "off": 11, "comps": 1, "dec": 4, "wheel": true},
+	{"name": "cams.p", "off": 0, "comps": 3, "dec": 3, "cam": true, "optional": true},
+	{"name": "cams.q", "off": 3, "comps": 4, "dec": 5, "cam": true, "optional": true},
+	{"name": "cams.fov", "off": 7, "comps": 1, "dec": 2, "cam": true, "optional": true},
+	{"name": "camera.active", "off": O_ACTIVE, "comps": 1, "dec": 0, "optional": true},
 ]
+
+
+## Base offsets of every element of a channel's group (4 wheels, N cameras, or one).
+static func group_bases(ch: Dictionary) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if ch.get("wheel", false):
+		for w in 4:
+			out.append(O_WHEELS + w * W_STRIDE + int(ch["off"]))
+	elif ch.get("cam", false):
+		for k in CAMERA_NAMES.size():
+			out.append(O_CAMS + k * C_STRIDE + int(ch["off"]))
+	else:
+		out.append(int(ch["off"]))
+	return out
+
+
+static func is_grouped(ch: Dictionary) -> bool:
+	return ch.get("wheel", false) or ch.get("cam", false)
 
 
 # === FILE NAMES ===
@@ -70,14 +99,18 @@ static func take_number(f: String) -> int:
 
 ## Writes format v2. `compress` → gzip (standard, Python: gzip.open). Safe on a worker thread.
 static func write_take(path: String, meta: Dictionary, summary: Dictionary, d: PackedFloat64Array,
-		n: int, compress: bool) -> Error:
+		n: int, compress: bool, all_cameras: bool = true) -> Error:
 	var m := meta.duplicate()
 	m["n"] = n
+	m["camera_names"] = Array(CAMERA_NAMES)   # camera.active indexes this list
+	m["all_cameras"] = all_cameras
 	var shapes := {}
 	for ch in CHANNELS:
 		var shp: Array = []
 		if ch.get("wheel", false):
 			shp.append(4)
+		elif ch.get("cam", false):
+			shp.append(CAMERA_NAMES.size())
 		if int(ch["comps"]) > 1:
 			shp.append(int(ch["comps"]))
 		shapes[ch["name"]] = shp
@@ -88,6 +121,8 @@ static func write_take(path: String, meta: Dictionary, summary: Dictionary, d: P
 	lines.append('"channels":{')
 	var body := PackedStringArray()
 	for ch in CHANNELS:
+		if ch.get("cam", false) and not all_cameras:
+			continue
 		body.append('"%s":%s' % [ch["name"], _channel_json(d, n, ch)])
 	lines.append(",\n".join(body))
 	lines.append("}}\n")
@@ -106,13 +141,13 @@ static func write_take(path: String, meta: Dictionary, summary: Dictionary, d: P
 
 static func _channel_json(d: PackedFloat64Array, n: int, ch: Dictionary) -> String:
 	var comps: int = ch["comps"]
-	if ch.get("wheel", false):
-		var per_wheel := PackedStringArray()
-		for w in 4:
-			var base: int = O_WHEELS + w * W_STRIDE + int(ch["off"])
-			per_wheel.append(_components(d, n, base, comps, ch))
-		return "[" + ",".join(per_wheel) + "]"
-	return _components(d, n, ch["off"], comps, ch)
+	var bases := group_bases(ch)
+	if is_grouped(ch):
+		var parts := PackedStringArray()
+		for base in bases:
+			parts.append(_components(d, n, base, comps, ch))
+		return "[" + ",".join(parts) + "]"
+	return _components(d, n, bases[0], comps, ch)
 
 
 static func _components(d: PackedFloat64Array, n: int, base: int, comps: int, ch: Dictionary) -> String:
@@ -145,23 +180,25 @@ static func _store_channels(chs: Dictionary, n: int) -> Dictionary:
 	var d := PackedFloat64Array()
 	d.resize(n * STRIDE)
 	d.fill(0.0)
+	for k in n:
+		d[k * STRIDE + O_ACTIVE] = -1.0
 	for ch in CHANNELS:
 		var v: Variant = chs.get(ch["name"])
 		if v == null:
-			if str(ch["name"]).begins_with("camera."):
-				continue   # optional
+			if ch.get("optional", false) or str(ch["name"]).begins_with("camera."):
+				continue   # older takes: no per-camera channels
 			return {"error": "missing channel %s" % ch["name"]}
 		var comps: int = ch["comps"]
-		if ch.get("wheel", false):
-			if not (v is Array and (v as Array).size() == 4):
-				return {"error": "%s: expected 4 wheels" % ch["name"]}
-			for w in 4:
-				var base: int = O_WHEELS + w * W_STRIDE + int(ch["off"])
-				var e := _unpack(d, n, base, comps, v[w], ch["name"])
+		var bases := group_bases(ch)
+		if is_grouped(ch):
+			if not (v is Array and (v as Array).size() == bases.size()):
+				return {"error": "%s: expected %d entries" % [ch["name"], bases.size()]}
+			for g in bases.size():
+				var e := _unpack(d, n, bases[g], comps, v[g], ch["name"])
 				if e != "":
 					return {"error": e}
 		else:
-			var e := _unpack(d, n, ch["off"], comps, v, ch["name"])
+			var e := _unpack(d, n, bases[0], comps, v, ch["name"])
 			if e != "":
 				return {"error": e}
 	return {"data": d}
@@ -360,6 +397,7 @@ static func store_sample(d: PackedFloat64Array, o: int, s: Variant) -> String:
 			d[o + O_CAM + k] = 0.0
 		d[o + O_CAM + 6] = 1.0
 		d[o + O_CAM + 7] = 50.0
+	d[o + O_ACTIVE] = -1.0   # v1 takes recorded only the active camera, not which one
 	var wheels: Variant = sd.get("wheels")
 	if not (wheels is Array and (wheels as Array).size() == 4):
 		return "wheels"

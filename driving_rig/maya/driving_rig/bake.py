@@ -215,6 +215,34 @@ def bake(take, fps=24.0, in_frame=1001.0, solve=True):
     b.radius_warn = [w for w, r in b.spin_report.items()
                      if not abs(r["radius_error_percent"]) <= RADIUS_WARN_PERCENT]
 
+    # steering wheel: mean front road-wheel angle x ratio (as in Godot); needs rig 0.7+ params
+    cp = meta.get("car_params", {})
+    b.steering = None
+    if "steering_ratio" in cp and "driver_eye" in cp:
+        fl, fr = b.wheels["FL"]["steer_ry"], b.wheels["FR"]["steer_ry"]
+        ratio = float(cp["steering_ratio"])
+        b.steering = {
+            "angle": [(a + c) * 0.5 * ratio for a, c in zip(fl, fr)],   # rad, + = CCW from the seat
+            "ratio": ratio,
+            "position_cm": [(float(cp["driver_eye"][k]) + float(cp["steering_wheel_offset"][k])) * s for k in range(3)],
+            "tilt_deg": float(cp["steering_column_tilt_deg"]),
+            "radius_cm": float(cp["steering_wheel_radius"]) * s,
+        }
+
+    # every recorded camera (rig 0.7+) and which one was on screen
+    b.cameras = []
+    for k, name in enumerate(take.camera_names):
+        P = take.camera(k, "cams.p")
+        Q = take.camera(k, "cams.q")
+        eul = mu.quats_to_euler_zxy(rs.quat(Q[0], Q[1], Q[2], Q[3]))
+        b.cameras.append({
+            "name": name,
+            "t": tuple([v * s for v in rs.lin(P[c])] for c in range(3)),
+            "r": tuple([e[c] for e in eul] for c in range(3)),
+            "focal": [mu.vfov_to_focal_mm(v) for v in rs.lin(take.camera(k, "cams.fov"))],
+        })
+    b.active_camera = rs.step(take["camera.active"]) if "camera.active" in take else None
+
     # camera (optional channel)
     b.camera = None
     if "camera.p" in take and "camera.q" in take:

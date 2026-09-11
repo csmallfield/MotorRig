@@ -30,6 +30,7 @@ from driving_rig import bake, mathutil as mu, take_io  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixture_take.json.gz")
 SCENE = os.path.join(HERE, "fixture_scene")
+CAMS = os.path.join(HERE, "fixture_take_cams.json.gz")   # rig 0.7+: all cameras, steering params
 _started = []
 
 
@@ -390,6 +391,107 @@ class MayaImport(unittest.TestCase):
         c.select(ns + ":Ramp")
         self.assertTrue(self.importer.delete_rig())
         self.assertFalse(c.namespace(exists=":" + ns))
+
+    # --- world scale ---------------------------------------------------------
+
+    def _chassis_world(self, root, fr=1001):
+        m = self.cmds.getAttr(self._ns(root) + ":chassis.worldMatrix[0]", time=fr)
+        return (m[12], m[13], m[14])
+
+    def test_world_scale_on_import_and_after(self):
+        from driving_rig import mayautil
+        c = self.cmds
+        root = self._import(world_scale=0.1)
+        take_cm = tuple(self.take["chassis.p"][k][self.take.in_index] * 100.0 for k in range(3))
+        self.assertEqual(c.listRelatives(root, parent=True)[0], mayautil.WORLD)
+        self.assertLess(mu.v_len(mu.v_sub(self._chassis_world(root), mu.v_scale(take_cm, 0.1))), 1e-4)
+        c.setAttr(mayautil.WORLD + ".worldScale", 1.0)          # change it after import
+        self.assertLess(mu.v_len(mu.v_sub(self._chassis_world(root), take_cm)), 1e-3)
+        grp = self._scene()                                     # scenes live under it too
+        self.assertEqual(c.listRelatives(grp, parent=True)[0], mayautil.WORLD)
+
+    def test_spin_solve_holds_at_any_world_scale(self):
+        from driving_rig import mayautil
+        root = self._import(world_scale=1.0)
+        ns = self._ns(root)
+        before = self._spin_curve(ns, "RL", self.bk.frames)
+        self.cmds.setAttr(mayautil.WORLD + ".worldScale", 0.1)
+        reps = self.importer.resolve_spin(root, verbose=False)
+        after = self._spin_curve(ns, "RL", self.bk.frames)
+        self.assertLess(max(abs(a - b) for a, b in zip(before, after)), 0.01)
+        self.assertLess(abs(reps["RL"]["radius_error_percent"]), bake.RADIUS_WARN_PERCENT)
+
+    def test_world_group_adopts_older_imports(self):
+        from driving_rig import mayautil
+        c = self.cmds
+        root = self._import()
+        c.parent(root, world=True)                   # as if imported before world scale existed
+        c.delete(mayautil.WORLD)
+        mayautil.world_group(0.5)
+        self.assertEqual(c.listRelatives(self.importer.find_rig_root(self._ns(root) + ":chassis"),
+                                         parent=True)[0], mayautil.WORLD)
+
+    # --- all cameras ---------------------------------------------------------
+
+    def test_all_cameras_match_take(self):
+        c = self.cmds
+        take = take_io.load(CAMS)
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False, world_scale=1.0)
+        ns = self._ns(root)
+        self.assertEqual(len(c.listRelatives(ns + ":cameras", children=True)), 9)
+        worst_r = worst_t = 0.0
+        for k, name in enumerate(take.camera_names):
+            for fr in (1001, 1020):
+                j = take.in_index + (fr - 1001) * 10
+                m = c.getAttr("%s:cam_%s.worldMatrix[0]" % (ns, name), time=fr)
+                q = tuple(take.camera(k, "cams.q")[i][j] for i in range(4))
+                p = tuple(take.camera(k, "cams.p")[i][j] * 100.0 for i in range(3))
+                worst_r = max(worst_r, mat_err(maya_rot(m), mu.q_to_matrix(mu.q_norm(q))))
+                worst_t = max(worst_t, mu.v_len(mu.v_sub((m[12], m[13], m[14]), p)))
+        self.assertLess(worst_r, 1e-4)
+        self.assertLess(worst_t, 1e-2)
+
+    def test_active_camera_track(self):
+        """The fixture switched chase -> heli -> wheel during the take."""
+        c = self.cmds
+        take = take_io.load(CAMS)
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
+        seen = []
+        for fr in range(993, 1033):
+            v = int(round(c.getAttr(root + ".activeCamera", time=fr)))
+            if not seen or seen[-1] != v:
+                seen.append(v)
+        names = ["none"] + take.camera_names
+        self.assertEqual([names[v] for v in seen], ["chase", "heli", "wheel"])
+
+    # --- steering wheel ------------------------------------------------------
+
+    def test_steering_wheel(self):
+        c = self.cmds
+        take = take_io.load(CAMS)
+        b = bake.bake(take, fps=24, in_frame=1001)
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
+        ns = self._ns(root)
+        fr = 1025
+        i = b.frames.index(fr)
+        want = math.degrees((b.wheels["FL"]["steer_ry"][i] + b.wheels["FR"]["steer_ry"][i]) * 0.5
+                            * take.meta["car_params"]["steering_ratio"])
+        self.assertGreater(want, 45.0)                          # the fixture is turning left
+        self.assertAlmostEqual(c.getAttr(ns + ":steering_wheel.rotateZ", time=fr), want, places=3)
+        # counter-clockwise from the seat: the marker moves to the driver's left (-X in the car)
+        mk = c.getAttr(ns + ":steering_marker_geo.worldMatrix[0]", time=fr)
+        col = c.getAttr(ns + ":steering_column.worldMatrix[0]", time=fr)
+        chs = c.getAttr(ns + ":chassis.worldMatrix[0]", time=fr)
+        xaxis = mu.v_norm((chs[0], chs[1], chs[2]))
+        self.assertLess(mu.v_dot(mu.v_sub((mk[12], mk[13], mk[14]), (col[12], col[13], col[14])), xaxis), -5.0)
+
+    def test_older_take_has_neither(self):
+        c = self.cmds
+        root = self._import()
+        ns = self._ns(root)
+        self.assertFalse(c.objExists(ns + ":cameras"))
+        self.assertFalse(c.objExists(ns + ":steering_wheel"))
+        self.assertTrue(c.objExists(ns + ":take_cam"))
 
     # --- housekeeping ------------------------------------------------------
 

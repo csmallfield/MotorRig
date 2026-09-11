@@ -77,14 +77,15 @@ static func _check_v2(r: Dictionary, meta: Dictionary, e: PackedStringArray) -> 
 		var nm: String = ch["name"]
 		var v: Variant = chs.get(nm)
 		if v == null:
-			if not nm.begins_with("camera."):
+			if not (nm.begins_with("camera.") or ch.get("optional", false)):
 				e.append("channels.%s: missing" % nm)
 			continue
 		var series: Array = []   # every innermost time series
 		var shape_ok := true
 		var outer: Array = []
-		if ch.get("wheel", false):
-			if v is Array and (v as Array).size() == 4:
+		if ch.get("wheel", false) or ch.get("cam", false):
+			var count := 4 if ch.get("wheel", false) else (meta.get("camera_names", []) as Array).size()
+			if v is Array and (v as Array).size() == count and count > 0:
 				outer = v
 			else:
 				shape_ok = false

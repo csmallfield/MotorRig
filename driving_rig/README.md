@@ -1,4 +1,4 @@
-# Driving Rig — v0.6.0
+# Driving Rig — v0.7.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -20,7 +20,7 @@ proxy rig in Maya 2026 with spin re-solve.
 | RT / LT | W / S (↑ / ↓) | throttle / brake — hold brake at a stop to reverse |
 | Left stick | A / D (← / →) | steer |
 | B | Space | handbrake |
-| Y | C | chase ↔ driver cam |
+| Y | C | next camera (9 angles) — number keys 1-9 jump to one |
 | Start | R | record / stop (cancels during countdown) |
 | LB | Tab | take browser |
 | X | P | ghost play / pause |
@@ -28,6 +28,42 @@ proxy rig in Maya 2026 with spin re-solve.
 | — | Home | reset to spawn |
 
 Recover/reset are locked while a take is running so every take is physically continuous.
+
+## Cameras
+
+Nine cameras, all running every tick (so switching never jumps, and all of them are recorded):
+
+| key | camera | |
+|---|---|---|
+| 1 | chase | lagged spring-arm follow |
+| 2 | driver | driver's eye, with the steering wheel in view |
+| 3 | heli | high overhead follow, slow heading lag, looking down with lead |
+| 4 | front | tracking vehicle ahead, looking back at the car |
+| 5 | side | Russian-arm profile alongside, matching speed |
+| 6 | wheel | rigid mount low on the left flank, looking at the front wheel |
+| 7 | bumper | rigid mount on the nose, looking ahead |
+| 8 | trackside | broadcast camera planted ahead; pans and zooms as the car passes, then leapfrogs |
+| 9 | orbit | slow orbit |
+
+Tracking cameras never go below the terrain. In a replay they all follow the ghost — watch
+any take from any angle; the driver slot becomes the take's recorded camera.
+
+**Recording:** every camera's position, rotation and FOV is stored each tick, plus which one
+was on screen (`camera.active` — an edit list). That roughly doubles file size (~600 KB per
+10 s); set `record_all_cameras` off on the Recorder node to keep only the active camera.
+
+## Steering wheel and custom chassis
+
+The car has a steering wheel (torus, spoke, marker at 12 o'clock) that turns by the front
+wheels' steer angle × `steering_ratio` (default 15:1: full lock ≈ 490°), counter-clockwise from
+the seat when turning left. Position, radius and column tilt are in the car profile.
+
+**Custom chassis:** drop a scene (a `.tscn`, or an imported `.glb`/`.gltf`/`.blend`) into the
+car profile's `chassis_scene` and fit it with `chassis_transform`. It replaces the proxy box;
+the collider is still the `body_size` box, so size that to match (handling is unchanged).
+`hide_chassis_in_driver_cam` (default on) hides it from the driver cam — turn it off for a model
+with an interior and see-through glass. The replay ghost rebuilds your model from the take.
+Maya keeps the proxy cube (it can't read Godot scenes): parent your own model under `chassis`.
 
 ## Take browser
 
@@ -75,6 +111,18 @@ locators, solve spin (or use the recorded spin as-is). A spin-check report pops 
 
 Each import lives in its own namespace (`drv_<name>:`), curves included, so several takes can
 share a scene and *Delete Rig…* removes one cleanly.
+
+**World scale:** every rig and scene goes under one group, `DrivingRig_world`, with a single
+channel-box attribute **`worldScale`** (1.0 = true size in cm; **0.1 = one unit per 10 cm**, so a
+180 cm person is 18 units). Set it in the import dialog, via *Driving Rig ▸ World Scale...*, or
+straight in the channel box — any time after import. Spin re-solve and the radius check measure
+in world space, so they stay correct at any scale. Rigs imported before 0.7 are adopted into the
+group the first time it's created.
+
+**Cameras in Maya:** `take_cam` switches like the take did; the dialog's *Import every recorded
+camera* adds `cameras/cam_chase … cam_orbit`, and the root gets an enum `activeCamera` keyed
+(stepped) to what was on screen — ready to drive a camera sequencer. The steering wheel is
+`chassis/steering_column/steering_wheel` (animated `rotateZ`).
 
 ```
 drv_hero:root                  move/rotate the whole take from here
@@ -216,6 +264,10 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | scene_export | 7 OBJs, ground 160,801 verts / 320k tris; corner vertex on the height function to 0.0000 cm |
 | browser | list, replay, camera follow, input lock and restore |
 | menu | lists every profile on disk, selects, warns on tick mismatch, flags invalid files |
+| cameras | 9 cameras x 2,400 ticks in the hills: car in frame 100 %, rigid mounts fixed, never under ground, cycle + 1-9 |
+| camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
+| steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
+| custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |
 | car_profiles | 4 cars x settle / full lock / flick — see the profile table |
 | world_profiles | 4 worlds: build, gravity/tick/grip applied, car settles |
 

@@ -87,6 +87,16 @@ var steer_return_rate: float = 6.0
 var ackermann: float = 1.0
 var traction_control: bool = false
 var driver_eye: Vector3 = Vector3(-0.3, 0.47, 0.2)
+var chassis_scene: PackedScene
+var chassis_transform: Transform3D = Transform3D.IDENTITY
+var hide_chassis_in_driver_cam: bool = true
+var steering_ratio: float = 15.0
+var steering_wheel_radius: float = 0.19
+var steering_wheel_offset: Vector3 = Vector3(0.0, -0.28, -0.5)
+var steering_column_tilt_deg: float = 20.0
+## Steering-wheel rotation, rad (+ = counter-clockwise as the driver sees it = turning left).
+var steering_wheel_angle: float = 0.0
+var _steering_wheel: Node3D
 var body_color: Color = Color(0.86, 0.42, 0.10)
 
 ## World physics (from the active WorldProfile)
@@ -190,6 +200,8 @@ func _apply_profile(p: CarProfile) -> void:
 		var n: String = prop["name"]
 		if n in ["display_name", "description", "tuned_at_hz"]:
 			continue
+		if prop["type"] == TYPE_NIL:
+			continue
 		set(n, p.get(n))
 
 
@@ -250,28 +262,87 @@ func _build_body() -> void:
 	col.shape = shape
 	add_child(col)
 
-	var box := BoxMesh.new()
-	box.size = body_size
-	var mi := MeshInstance3D.new()
-	mi.name = "BodyGeo"
-	mi.mesh = box
-	mi.material_override = _tinted(body_material, body_color)
-	mi.layers = VIS_LAYER_BODY
-	add_child(mi)
+	if chassis_scene:
+		_build_chassis_model()
+	else:
+		var box := BoxMesh.new()
+		box.size = body_size
+		var mi := MeshInstance3D.new()
+		mi.name = "BodyGeo"
+		mi.mesh = box
+		mi.material_override = _tinted(body_material, body_color)
+		mi.layers = VIS_LAYER_BODY
+		add_child(mi)
+
+		# Nose bar so heading reads at a glance (the proxy box is otherwise symmetric).
+		var nose := BoxMesh.new()
+		nose.size = Vector3(body_size.x * 0.8, 0.12, 0.12)
+		var nose_mi := MeshInstance3D.new()
+		nose_mi.name = "NoseGeo"
+		nose_mi.mesh = nose
+		nose_mi.material_override = accent_material
+		nose_mi.position = Vector3(0.0, body_size.y * 0.5 - 0.06, -body_size.z * 0.5 + 0.02)
+		add_child(nose_mi)
+
 	var driver_cam := get_node_or_null(^"DriverCam") as Camera3D
 	if driver_cam:
 		driver_cam.cull_mask &= ~VIS_LAYER_BODY   # see out through the proxy shell
 		driver_cam.position = driver_eye
+	_steering_wheel = build_steering_wheel(self, driver_eye, steering_wheel_offset, steering_column_tilt_deg,
+			steering_wheel_radius, wheel_material, accent_material)
 
-	# Nose bar so heading reads at a glance (the proxy box is otherwise symmetric).
-	var nose := BoxMesh.new()
-	nose.size = Vector3(body_size.x * 0.8, 0.12, 0.12)
-	var nose_mi := MeshInstance3D.new()
-	nose_mi.name = "NoseGeo"
-	nose_mi.mesh = nose
-	nose_mi.material_override = accent_material
-	nose_mi.position = Vector3(0.0, body_size.y * 0.5 - 0.06, -body_size.z * 0.5 + 0.02)
-	add_child(nose_mi)
+
+func _build_chassis_model() -> void:
+	var inst := chassis_scene.instantiate()
+	var holder := Node3D.new()
+	holder.name = "ChassisModel"
+	holder.transform = chassis_transform
+	add_child(holder)
+	holder.add_child(inst)
+	if hide_chassis_in_driver_cam:
+		for v in holder.find_children("*", "VisualInstance3D", true, false):
+			(v as VisualInstance3D).layers = VIS_LAYER_BODY
+		if inst is VisualInstance3D:
+			(inst as VisualInstance3D).layers = VIS_LAYER_BODY
+
+
+## Torus rim + a spoke + a marker at 12 o'clock, on a tilted column. Returns the node that
+## rotates (about its local +Z, which points at the driver). Shared with the replay ghost.
+static func build_steering_wheel(parent: Node3D, eye: Vector3, offset: Vector3, tilt_deg: float,
+		radius: float, rim_mat: Material, marker_mat: Material) -> Node3D:
+	var column := Node3D.new()
+	column.name = "SteeringColumn"
+	column.position = eye + offset
+	column.rotation = Vector3(-deg_to_rad(tilt_deg), 0.0, 0.0)
+	parent.add_child(column)
+	var wheel := Node3D.new()
+	wheel.name = "SteeringWheel"
+	column.add_child(wheel)
+	var torus := TorusMesh.new()
+	torus.inner_radius = radius - 0.016
+	torus.outer_radius = radius + 0.016
+	var rim := MeshInstance3D.new()
+	rim.name = "Rim"
+	rim.mesh = torus
+	rim.material_override = rim_mat
+	rim.rotation = Vector3(PI * 0.5, 0.0, 0.0)   # torus axis Y -> column axis Z
+	wheel.add_child(rim)
+	var spoke_mesh := BoxMesh.new()
+	spoke_mesh.size = Vector3(radius * 2.0, 0.025, 0.02)
+	var spoke := MeshInstance3D.new()
+	spoke.name = "Spoke"
+	spoke.mesh = spoke_mesh
+	spoke.material_override = rim_mat
+	wheel.add_child(spoke)
+	var mark_mesh := BoxMesh.new()
+	mark_mesh.size = Vector3(0.035, 0.05, 0.04)
+	var mark := MeshInstance3D.new()
+	mark.name = "TopMarker"
+	mark.mesh = mark_mesh
+	mark.material_override = marker_mat
+	mark.position = Vector3(0.0, radius, 0.0)
+	wheel.add_child(mark)
+	return wheel
 
 
 func _build_wheels() -> void:
@@ -488,6 +559,10 @@ func _physics_process(delta: float) -> void:
 		_steer_nodes[i].rotation.y = wheel_steer[i]
 		_susp_nodes[i].position.y = -(susp_rest - wheel_compression[i])
 		_spin_nodes[i].rotation.x = -fmod(wheel_spin[i], TAU)
+
+	steering_wheel_angle = (wheel_steer[0] + wheel_steer[1]) * 0.5 * steering_ratio
+	if _steering_wheel:
+		_steering_wheel.rotation.z = steering_wheel_angle
 
 	if global_position.y < -100.0 and not reset_locked:
 		reset_to_spawn()

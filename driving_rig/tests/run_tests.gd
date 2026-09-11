@@ -15,7 +15,8 @@ const REF_CAR: String = "res://profiles/cars/sedan_awd.tres"
 const REF_WORLD: String = "res://profiles/worlds/default_hills.tres"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
-	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles"]
+	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles",
+	"cameras", "camera_record", "steering_wheel", "custom_chassis"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch"]
 
 var queue: Array[String] = []
@@ -402,7 +403,7 @@ func _t_record_replay() -> bool:
 				and (meta.get("car_params", {}) as Dictionary).get("mass", 0.0) == 1200.0
 		var ok: bool = player.n == expected and compared == player.n and max_pos < 1e-4 and max_rot < 1e-3 \
 				and int(hdr["summary"]["samples"]) == expected and png_ok and player.format_version == 2 \
-				and str(st["saved"]).ends_with(".json.gz") and kb < 600.0 and prec[0] <= 1.0 and profiles_ok
+				and str(st["saved"]).ends_with(".json.gz") and kb < 800.0 and prec[0] <= 1.0 and profiles_ok
 		_result(ok, "v%d %s, %.0f KB for 10 s · %d samples (expect %d) · every channel within its stated precision of the raw data (worst: %s at %.2f×) · ghost vs live: wheel pos err %.4f mm, rot err %.6f · thumbnail %s" % [
 			player.format_version, str(st["saved"]).get_file(), kb, player.n, expected, prec[1], prec[0],
 			max_pos * 1000.0, max_rot, png_ok] + (" · profiles in meta" if profiles_ok else " · PROFILES MISSING FROM META"))
@@ -419,13 +420,14 @@ func _log_live() -> void:
 
 ## Largest |a − b| over all channels, as a multiple of each channel's rounding step
 ## (0.5 · 10^-decimals; 0/1 flags use 0.5). ≤ 1.0 means every value honours its precision.
-func _worst_channel_error(a: PackedFloat64Array, n: int, b: Callable) -> Array:
+func _worst_channel_error(a: PackedFloat64Array, n: int, b: Callable, skip_optional: bool = false) -> Array:
 	var worst := 0.0
 	var worst_name := "-"
 	for ch in TakeFormat.CHANNELS:
+		if skip_optional and ch.get("optional", false):
+			continue
 		var tol := 0.5 if ch.get("flag", false) else 0.5 * pow(10.0, -int(ch["dec"])) * 1.0001
-		for w in (4 if ch.get("wheel", false) else 1):
-			var base: int = (TakeFormat.O_WHEELS + w * TakeFormat.W_STRIDE if ch.get("wheel", false) else 0) + int(ch["off"])
+		for base in TakeFormat.group_bases(ch):
 			for c in int(ch["comps"]):
 				for i in n:
 					var rel := absf(a[i * TakeFormat.STRIDE + base + c] - float(b.call(i, base + c))) / tol
@@ -456,7 +458,7 @@ func _t_format_compat() -> bool:
 	f.close()
 	var v1 := TakeFormat.load_take(v1_path)
 	var d1: PackedFloat64Array = v1["data"]
-	var cmp := _worst_channel_error(d, n, func(i: int, o: int) -> float: return d1[i * TakeFormat.STRIDE + o])
+	var cmp := _worst_channel_error(d, n, func(i: int, o: int) -> float: return d1[i * TakeFormat.STRIDE + o], true)
 	var ok: bool = int(v1["format_version"]) == 1 and v1["n"] == n and cmp[0] <= 1.0
 	_result(ok, "v1 reader vs v2 reader on the same take: %d samples each, worst difference %.2f× rounding step" % [v1["n"], cmp[0]])
 	st["v1_path"] = v1_path
@@ -701,3 +703,233 @@ func _t_menu() -> bool:
 		"%d cars, %d worlds listed · select ok %s · tick-mismatch warning %s · invalid file flagged %s" % [
 		cars, worlds, picked, warned, flagged])
 	return true
+
+
+# === cameras, steering wheel, custom chassis ===
+
+func _rig() -> ChaseCameraRig:
+	return main.get_node("ChaseCam")
+
+
+## All nine cameras, every tick, driving into the hills with steering: tracking cameras keep
+## the car in frame, rigid mounts stay fixed to the car, nothing goes under the ground.
+func _t_cameras() -> bool:
+	var rig := _rig()
+	if t == 1:
+		place(Vector3(20, 0.9, 90), PI)
+		st["seen"] = {}
+		st["frames"] = 0
+		st["rigid_err"] = 0.0
+		st["under"] = 0
+		st["nonfinite"] = 0
+		st["changed"] = []
+		st["rigid0"] = {}
+		rig.camera_changed.connect(func(n: String) -> void: st["changed"].append(n))
+		# check after the rig has placed the cameras this tick (priority 200), not before the
+		# physics step moves the car
+		var src := GDScript.new()
+		src.source_code = "extends Node\nvar cb: Callable\nfunc _physics_process(_d: float) -> void:\n\tcb.call()\n"
+		src.reload()
+		var logger := Node.new()
+		logger.set_script(src)
+		logger.process_physics_priority = 200
+		logger.set("cb", _check_cameras)
+		main.add_child(logger)
+	drive(clampf((60.0 - kmh()) * 0.3, 0.0, 1.0), 0.0, 0.35 * sin(sec() * 0.8))
+	if t == 240 * 12:
+		var start := rig.active_camera
+		var visited := {}
+		for k in rig.cycle_list().size():
+			rig.cycle(1)
+			visited[rig.camera_label(rig.active_camera)] = true
+		var wraps := rig.active_camera == start
+		rig.select_index(2)
+		var direct := rig.camera_label(rig.active_camera) == "heli"
+		var worst := 2.0
+		var worst_n := ""
+		for n: String in ["chase", "heli", "front", "side", "trackside", "orbit"]:
+			var frac: float = float(st["seen"].get(n, 0)) / st["frames"]
+			if frac < worst:
+				worst = frac
+				worst_n = n
+		var heli_h := rig.cameras[2].global_position.y - car.global_position.y
+		var ok: bool = worst > 0.97 and st["rigid_err"] < 1e-4 and st["under"] == 0 and st["nonfinite"] == 0 \
+				and visited.size() == 9 and wraps and direct and heli_h > 8.0 and st["changed"].size() >= 10
+		_result(ok, "%d ticks x 9 cams · car in frame >= %.1f%% (worst %s) · rigid drift %.6f m · below ground %d · heli +%.0f m · cycle %d/9 wraps %s · 1-9 jump %s" % [
+			st["frames"], worst * 100.0, worst_n, st["rigid_err"], st["under"], heli_h, visited.size(), wraps, direct])
+		return true
+	return false
+
+
+## Rotation between two quaternions, precise near zero (acos of a dot product isn't: float32
+## can only resolve ~1e-3 rad there).
+func _quat_angle(a: Quaternion, b: Quaternion) -> float:
+	var d := Vector4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w)
+	if a.dot(b) < 0.0:
+		d = Vector4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w)
+	return 4.0 * asin(minf(d.length() * 0.5, 1.0))   # chord |dq| = 2 sin(theta/4)
+
+
+func _check_cameras() -> void:
+	if main == null or cur != "cameras" or t <= 480:
+		return   # the logger can outlive its test by a frame
+	var rig := _rig()
+	st["frames"] += 1
+	var inv := car.global_transform.affine_inverse()
+	for i in rig.cameras.size():
+		var n: String = TakeFormat.CAMERA_NAMES[i]
+		var cam := rig.cameras[i]
+		var x := cam.global_transform
+		if not (x.origin.is_finite() and x.basis.x.is_finite()):
+			st["nonfinite"] += 1
+			continue
+		if n in ["chase", "heli", "front", "side", "trackside", "orbit"]:
+			if cam.is_position_in_frustum(car.global_position):
+				st["seen"][n] = st["seen"].get(n, 0) + 1
+			if x.origin.y < _ground_y(x.origin) + 0.3:
+				st["under"] += 1
+		if n in ["wheel", "bumper", "driver"]:
+			var local := inv * x
+			if not st["rigid0"].has(n):
+				st["rigid0"][n] = local
+			st["rigid_err"] = maxf(st["rigid_err"], (local.origin - (st["rigid0"][n] as Transform3D).origin).length())
+
+
+func _ground_y(p: Vector3) -> float:
+	var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 300.0, p + Vector3.DOWN * 300.0, DrivingCar.LAYER_WORLD)
+	var hit := car.get_world_3d().direct_space_state.intersect_ray(q)
+	return (hit["position"] as Vector3).y if hit else -INF
+
+
+## Switch cameras mid-take: camera.active records the switches at the right ticks, and every
+## camera's recorded path matches its live path (within the 1 mm / 1e-5 precision).
+func _t_camera_record() -> bool:
+	var rig := _rig()
+	if t == 1:
+		st["live"] = {}
+		var src := GDScript.new()
+		src.source_code = "extends Node\nvar cb: Callable\nfunc _physics_process(_d: float) -> void:\n\tcb.call()\n"
+		src.reload()
+		var logger := Node.new()
+		logger.set_script(src)
+		logger.process_physics_priority = 200
+		logger.set("cb", func() -> void:
+			if main == null or cur != "camera_record" or not is_instance_valid(rig):
+				return
+			var xs: Array = []
+			for c in rig.cameras:
+				xs.append(c.global_transform)
+			st["live"][rec._tick - 1] = [xs, rig.active_index()])
+		main.add_child(logger)
+		rec.take_saved.connect(func(p: String, _s: Dictionary) -> void: st["saved"] = p)
+		rec.request_toggle()
+	drive(0.5, 0.0, 0.3 * sin(sec()))
+	var in_t := 1 + 3 * 240
+	if t == in_t + 480:
+		rig.select_index(2)     # heli
+		st["switch1"] = rec._tick
+	if t == in_t + 960:
+		rig.select_index(5)     # wheel
+		st["switch2"] = rec._tick
+	if t == in_t + 1440:
+		rec.request_toggle()
+	if st.has("saved") and not st.has("checked"):
+		st["checked"] = true
+		var r := TakeFormat.load_take(st["saved"])
+		var d: PackedFloat64Array = r["data"]
+		var meta: Dictionary = r["meta"]
+		var start: int = rec._in_tick - int(meta["in_index"])
+		var n: int = r["n"]
+		var pos_err := 0.0
+		var rot_err := 0.0
+		var per := {}
+		var active_ok := 0
+		for i in n:
+			var live: Array = st["live"].get(start + i, [])
+			if live.is_empty():
+				continue
+			if int(d[i * TakeFormat.STRIDE + TakeFormat.O_ACTIVE]) == int(live[1]):
+				active_ok += 1
+			for k in TakeFormat.CAMERA_NAMES.size():
+				var o := i * TakeFormat.STRIDE + TakeFormat.O_CAMS + k * TakeFormat.C_STRIDE
+				var lx: Transform3D = live[0][k]
+				var pe := Vector3(d[o], d[o + 1], d[o + 2]).distance_to(lx.origin)
+				pos_err = maxf(pos_err, pe)
+				var q := Quaternion(d[o + 3], d[o + 4], d[o + 5], d[o + 6]).normalized()
+				var re := _quat_angle(q, lx.basis.get_rotation_quaternion())
+				rot_err = maxf(rot_err, re)
+				var nm: String = TakeFormat.CAMERA_NAMES[k]
+				per[nm] = [maxf(per.get(nm, [0.0, 0.0])[0], pe), maxf(per.get(nm, [0.0, 0.0])[1], re)]
+		var a1 := int(d[(st["switch1"] - start) * TakeFormat.STRIDE + TakeFormat.O_ACTIVE])
+		var a2 := int(d[(st["switch2"] - start) * TakeFormat.STRIDE + TakeFormat.O_ACTIVE])
+		var names_ok: bool = Array(meta.get("camera_names", [])) == Array(TakeFormat.CAMERA_NAMES)
+		# file precision: positions 1 mm per axis (vector <= sqrt(3) x 0.5 mm), quaternions 1e-5
+		var ok: bool = names_ok and active_ok == n and a1 == 2 and a2 == 5 and pos_err < 0.00087 and rot_err < 1e-4
+		_result(ok, "9 cameras recorded · active track matches live on %d/%d samples (switch to heli, wheel at the right ticks: %s) · camera pos err %.2f mm, rot err %.6f rad" % [
+			active_ok, n, a1 == 2 and a2 == 5, pos_err * 1000.0, rot_err])
+		return true
+	return false
+
+
+## Turning left: road wheels steer +, the steering wheel turns ratio x that, counter-clockwise
+## from the driver's seat - its top marker moves to the driver's left.
+func _t_steering_wheel() -> bool:
+	if t == 1:
+		place(Vector3(280, 1.0, 280), PI * 0.25)
+	drive(0.0, 0.0, -1.0 if sec() > 1.0 else 0.0)
+	if t == 3 * 240:
+		var mean_steer := (car.wheel_steer[0] + car.wheel_steer[1]) * 0.5
+		var want := mean_steer * car.steering_ratio
+		var wheel := car.get_node("SteeringColumn/SteeringWheel") as Node3D
+		var marker := wheel.get_node("TopMarker") as Node3D
+		var column := car.get_node("SteeringColumn") as Node3D
+		var inv := car.global_transform.affine_inverse()
+		var dx := (inv * marker.global_position).x - (inv * column.global_position).x
+		var ok := mean_steer > 0.1 and absf(car.steering_wheel_angle - want) < 1e-6 \
+				and absf(wheel.rotation.z - want) < 1e-4 and dx < -0.1
+		_result(ok, "left lock: road wheels %.1f deg -> steering wheel %.0f deg (ratio %.0f:1) · top marker %.2f m to the driver's left" % [
+			rad_to_deg(mean_steer), rad_to_deg(car.steering_wheel_angle), car.steering_ratio, -dx])
+		return true
+	return false
+
+
+## A custom chassis model replaces the proxy box; the collider and handling don't change, and
+## the replay ghost rebuilds the same model from the take's meta.
+func _t_custom_chassis() -> bool:
+	if t == 1:
+		# rebuild the scene with a profile that has a chassis model
+		main.queue_free()
+		main = load("res://scenes/main.tscn").instantiate()
+		var p: CarProfile = (load(REF_CAR) as CarProfile).duplicate()
+		p.chassis_scene = load("res://tests/fixtures/chassis_test.tscn")
+		p.chassis_transform = Transform3D(Basis.IDENTITY, Vector3(0, 0.05, 0))
+		main.get_node("Car").profile = p
+		main.get_node("Terrain").profile = load(REF_WORLD)
+		main.get_node("Recorder").takes_dir = TAKES_DIR
+		root.add_child(main)
+		car = main.get_node("Car")
+		rec = main.get_node("Recorder")
+		player = main.get_node("TakePlayer")
+		browser = main.get_node("TakeBrowser")
+		car.use_player_input = false
+		return false
+	if t == 5 * 240:
+		var model := car.get_node_or_null("ChassisModel")
+		var has_box := car.get_node_or_null("BodyGeo") != null
+		var col := car.get_node("BodyCollider") as CollisionShape3D
+		var layers_ok := true
+		for v in model.find_children("*", "VisualInstance3D", true, false):
+			layers_ok = layers_ok and (v as VisualInstance3D).layers == DrivingCar.VIS_LAYER_BODY
+		var settled := absf(car.linear_velocity.y) < 0.01 and absf(car.global_position.y - _predicted_ride_y()) < 0.003
+		var ghost := GhostCar.new()
+		main.add_child(ghost)
+		var meta := car.build_take_meta()
+		meta["susp_rest"] = car.susp_rest
+		ghost.build(meta, null, null, null)
+		var ghost_model := ghost.get_node_or_null("chassis_model") != null and ghost.get_node_or_null("body_geo") == null
+		var ok: bool = model != null and not has_box and (col.shape as BoxShape3D).size == car.body_size \
+				and layers_ok and settled and ghost_model
+		_result(ok, "model in, box out %s · collider still %s · driver-cam layer %s · settles at ride height %s · ghost rebuilds model %s" % [
+			model != null and not has_box, (col.shape as BoxShape3D).size, layers_ok, settled, ghost_model])
+		return true
+	return false
