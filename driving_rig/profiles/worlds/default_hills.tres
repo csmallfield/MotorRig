@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_1vq5t"]
+
+[resource]
+script = ExtResource("1_1vq5t")
+description = "800 m procedural terrain: 150 m flat pad with speed bumps, a launch ramp and a mark at z = -55; rolling hills beyond."

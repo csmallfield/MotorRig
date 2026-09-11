@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_nj0ng"]
+
+[resource]
+script = ExtResource("1_nj0ng")
+display_name = "Wet Hills"
+description = "Default Hills in the rain: same ground (same scene export), 70 % grip."
+surface_grip = 0.7

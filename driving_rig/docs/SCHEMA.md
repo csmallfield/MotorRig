@@ -69,7 +69,8 @@ Spec schema fields plus:
 | `body.extents_are: "full_size"` | `extents` is the full box size, not half extents. |
 | `channel_shapes` | Per-channel shape without the time axis. |
 | `conventions` | Sign conventions (below) — importers should read this, not assume. |
-| `car_params` | Every tuning value, for re-simulating from `input.*` later. |
+| `car_params` | Every value of the car profile it was driven with (vectors as [x,y,z]), for re-simulating from `input.*` later. |
+| `car_profile`, `world_profile` | `{name, path}` of the profiles used (world includes `params`: gravity, tick, grip, terrain). Since 0.6.0. |
 | `body.mass`, `wheel_order`, `rig_version`, `godot_version`, `created` | Provenance. |
 
 `hardpoints` are chassis-local.

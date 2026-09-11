@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_nkny7"]
+
+[resource]
+script = ExtResource("1_nkny7")
+display_name = "Rough Country"
+description = "Bigger, sharper hills right off a small pad (different seed). Expect airtime over crests above ~60 km/h."
+seed_value = 777
+flat_radius = 80.0
+blend_distance = 80.0
+amplitude = 22.0
+octaves = 4

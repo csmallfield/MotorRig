@@ -28,66 +28,75 @@ const VIS_LAYER_BODY: int = 1 << 1   ## render layer 2: body shell, culled by th
 const MAX_COMP_VEL: float = 8.0        # m/s — clamps damper spikes from cast pops
 const LOAD_CAP_FACTOR: float = 3.5     # × static wheel load, caps tire grip spikes
 
-@export_group("Dimensions")
+## --- Tuning: set from a CarProfile at spawn (see scripts/profiles/car_profile.gd). ---
+## Plain vars, not Inspector exports: the profile .tres is the one place to tune.
 ## Full size, not half-extents. Deliberately narrower than the track so the wheels sit
 ## outboard and suspension/spin read from any angle (a 1.8 m box hides them completely).
-@export var body_size: Vector3 = Vector3(1.3, 1.0, 4.4)
-@export var com_offset: Vector3 = Vector3(0.0, -0.1, 0.0)
-@export var wheelbase: float = 2.65
-@export var track_front: float = 1.58
-@export var track_rear: float = 1.56
-@export var wheel_radius: float = 0.34
-@export var wheel_width: float = 0.24
-@export var hardpoint_height: float = -0.09   ## chassis-local Y of the suspension top mounts
+var body_size: Vector3 = Vector3(1.3, 1.0, 4.4)
+var com_offset: Vector3 = Vector3(0.0, -0.1, 0.0)
+var wheelbase: float = 2.65
+var track_front: float = 1.58
+var track_rear: float = 1.56
+var wheel_radius: float = 0.34
+var wheel_width: float = 0.24
+var hardpoint_height: float = -0.09   ## chassis-local Y of the suspension top mounts
 
-@export_group("Suspension")
-@export var susp_rest: float = 0.32           ## hardpoint → wheel centre at full droop
-@export var susp_max_travel: float = 0.18
-@export var spring_rate_front: float = 40000.0
-@export var spring_rate_rear: float = 40000.0
-@export var damp_bump: float = 2600.0
-@export var damp_rebound: float = 3400.0
-@export var arb_front: float = 9000.0
-@export var arb_rear: float = 5000.0
-@export var bump_stop_rate: float = 250000.0
-@export var visual_droop_rate: float = 30.0   ## 1/s — how fast an unloaded wheel drops
+var susp_rest: float = 0.32           ## hardpoint → wheel centre at full droop
+var susp_max_travel: float = 0.18
+var spring_rate_front: float = 40000.0
+var spring_rate_rear: float = 40000.0
+var damp_bump: float = 2600.0
+var damp_rebound: float = 3400.0
+var arb_front: float = 9000.0
+var arb_rear: float = 5000.0
+var bump_stop_rate: float = 250000.0
+var visual_droop_rate: float = 30.0   ## 1/s — how fast an unloaded wheel drops
 
-@export_group("Tires")
-@export var tire_mu: float = 1.15
-@export var front_grip: float = 1.0
-@export var rear_grip: float = 1.08           ## > front: understeer bias, no snap oversteer
-@export var peak_slip_angle_deg: float = 8.0
-@export var falloff_width_deg: float = 25.0
-@export_range(0.0, 1.0) var falloff_floor: float = 0.82   ## grip kept at full slide
-@export var low_speed_slip_ref: float = 3.0   ## m/s — keeps slip angle sane at crawl
-@export var rolling_resistance: float = 0.012
-@export var tire_force_lift: float = 0.0      ## raise tire force point → less roll
+var tire_mu: float = 1.15
+var front_grip: float = 1.0
+var rear_grip: float = 1.08           ## > front: understeer bias, no snap oversteer
+var peak_slip_angle_deg: float = 8.0
+var falloff_width_deg: float = 25.0
+var falloff_floor: float = 0.82   ## grip kept at full slide
+var low_speed_slip_ref: float = 3.0   ## m/s — keeps slip angle sane at crawl
+var rolling_resistance: float = 0.012
+var tire_force_lift: float = 0.0      ## raise tire force point → less roll
 
-@export_group("Drivetrain")
-@export var drive: Drive = Drive.AWD
-@export_range(0.0, 1.0) var awd_rear_bias: float = 0.6
-@export var engine_power_kw: float = 160.0
-@export var max_drive_force: float = 9000.0
-@export var top_speed_kmh: float = 220.0
-@export var reverse_force: float = 4000.0
-@export var reverse_top_speed_kmh: float = 35.0
-@export var brake_force: float = 14000.0
-@export_range(0.0, 1.0) var brake_bias_front: float = 0.65
-@export var abs_enabled: bool = true
-@export var handbrake_force: float = 6000.0
-@export_range(0.0, 1.0) var handbrake_rear_grip: float = 0.55
-@export var drag_coefficient: float = 0.42    ## F = c · v²
+var drive: Drive = Drive.AWD
+var awd_rear_bias: float = 0.6
+var engine_power_kw: float = 160.0
+var max_drive_force: float = 9000.0
+var top_speed_kmh: float = 220.0
+var reverse_force: float = 4000.0
+var reverse_top_speed_kmh: float = 35.0
+var brake_force: float = 14000.0
+var brake_bias_front: float = 0.65
+var abs_enabled: bool = true
+var handbrake_force: float = 6000.0
+var handbrake_rear_grip: float = 0.55
+var drag_coefficient: float = 0.42    ## F = c · v²
 
-@export_group("Steering")
-@export var max_steer_deg: float = 32.0
+var max_steer_deg: float = 32.0
 ## Full stick maps to the angle the tires can actually use at the current speed:
 ## atan(wheelbase · μg / v²) + margin. Past that the front just runs beyond peak slip
 ## and the car wobbles in yaw. Raise the margin to allow provoked understeer; set it
 ## very high to effectively disable the limiter.
-@export var steer_grip_margin_deg: float = 2.5
-@export var steer_rate: float = 4.5           ## input units / s toward target
-@export var steer_return_rate: float = 6.0
-@export_range(0.0, 1.0) var ackermann: float = 1.0
+var steer_grip_margin_deg: float = 2.5
+var steer_rate: float = 4.5           ## input units / s toward target
+var steer_return_rate: float = 6.0
+var ackermann: float = 1.0
+var traction_control: bool = false
+var driver_eye: Vector3 = Vector3(-0.3, 0.47, 0.2)
+var body_color: Color = Color(0.86, 0.42, 0.10)
+
+## World physics (from the active WorldProfile)
+var surface_grip: float = 1.0
+var air_density_scale: float = 1.0
+var _gravity: float = 9.81
+
+
+## Explicit profile (tests, tools). Otherwise SimConfig's selection, else built-in defaults.
+@export var profile: CarProfile
 
 @export_group("Visuals")
 @export var body_material: Material
@@ -135,7 +144,12 @@ var _spawn_xform: Transform3D
 var _just_reset: bool = false
 
 
+var active_profile: CarProfile   ## what this car was actually built from
+
+
 func _ready() -> void:
+	_apply_profile(_resolve_profile())
+	_apply_world(WorldProfile.active)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = com_offset
 	can_sleep = false
@@ -149,11 +163,53 @@ func _ready() -> void:
 	pm.friction = 0.6
 	physics_material_override = pm
 	_corner_mass = mass * 0.25
-	_static_load = mass * GRAVITY * 0.25
+	_static_load = mass * _gravity * 0.25
 	_alloc_state()
 	_build_body()
 	_build_wheels()
 	_spawn_xform = global_transform
+
+
+# === PROFILE ===
+
+func _resolve_profile() -> CarProfile:
+	if profile:
+		return profile
+	var cfg := get_node_or_null(^"/root/SimConfig")
+	if cfg and cfg.get("car_profile"):
+		return cfg.get("car_profile")
+	return CarProfile.new()
+
+
+## Copies every profile property onto the same-named car property (mass included).
+func _apply_profile(p: CarProfile) -> void:
+	active_profile = p
+	for prop in p.get_property_list():
+		if not (int(prop["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE):
+			continue
+		var n: String = prop["name"]
+		if n in ["display_name", "description", "tuned_at_hz"]:
+			continue
+		set(n, p.get(n))
+
+
+func _apply_world(w: WorldProfile) -> void:
+	if w:
+		surface_grip = w.surface_grip
+		air_density_scale = w.air_density_scale
+	var space := get_world_3d().space if is_inside_tree() else RID()
+	_gravity = PhysicsServer3D.area_get_param(space, PhysicsServer3D.AREA_PARAM_GRAVITY) \
+			if space.is_valid() else (w.gravity if w else GRAVITY)
+
+
+func _tinted(mat: Material, c: Color) -> Material:
+	if not (mat is ShaderMaterial):
+		return mat
+	var m := (mat as ShaderMaterial).duplicate() as ShaderMaterial
+	m.set_shader_parameter(&"base_color", c)
+	m.set_shader_parameter(&"line_color", c.lerp(Color.WHITE, 0.45))
+	m.set_shader_parameter(&"major_color", c.lerp(Color.WHITE, 0.8))
+	return m
 
 
 # === BUILD ===
@@ -199,12 +255,13 @@ func _build_body() -> void:
 	var mi := MeshInstance3D.new()
 	mi.name = "BodyGeo"
 	mi.mesh = box
-	mi.material_override = body_material
+	mi.material_override = _tinted(body_material, body_color)
 	mi.layers = VIS_LAYER_BODY
 	add_child(mi)
 	var driver_cam := get_node_or_null(^"DriverCam") as Camera3D
 	if driver_cam:
 		driver_cam.cull_mask &= ~VIS_LAYER_BODY   # see out through the proxy shell
+		driver_cam.position = driver_eye
 
 	# Nose bar so heading reads at a glance (the proxy box is otherwise symmetric).
 	var nose := BoxMesh.new()
@@ -363,7 +420,7 @@ func _physics_process(delta: float) -> void:
 		var abs_vl := absf(vl)
 
 		var hb := input_handbrake and rear
-		var grip := tire_mu * (front_grip if front else rear_grip)
+		var grip := tire_mu * surface_grip * (front_grip if front else rear_grip)
 		if hb:
 			grip *= handbrake_rear_grip
 		var fmax := grip * load
@@ -377,6 +434,9 @@ func _physics_process(delta: float) -> void:
 
 		# Longitudinal: drive + velocity-limited brake (never pushes the car backwards).
 		var f_drive := drive_total * _drive_share(i)
+		if traction_control and f_drive != 0.0:
+			var spare := sqrt(maxf(fmax * fmax - f_lat * f_lat, 0.0)) * 0.95
+			f_drive = signf(f_drive) * minf(absf(f_drive), spare)
 		var f_brake_cap := brake_in * brake_force * (brake_bias_front if front else 1.0 - brake_bias_front) * 0.5
 		if hb:
 			f_brake_cap = maxf(f_brake_cap, handbrake_force * 0.5)
@@ -413,7 +473,7 @@ func _physics_process(delta: float) -> void:
 		wheel_slip_lat[i] = alpha
 
 	# --- Aero drag
-	apply_central_force(-v_body * v_body.length() * drag_coefficient)
+	apply_central_force(-v_body * v_body.length() * drag_coefficient * air_density_scale)
 
 	# --- Integrate spin, update visuals
 	for i in WHEEL_COUNT:
@@ -532,7 +592,7 @@ func _update_steering(delta: float) -> void:
 			(steer_return_rate if returning else steer_rate) * delta)
 
 	var v2 := maxf(forward_speed * forward_speed, 1.0)
-	var grip_lim := atan(wheelbase * tire_mu * front_grip * GRAVITY / v2) + deg_to_rad(steer_grip_margin_deg)
+	var grip_lim := atan(wheelbase * tire_mu * surface_grip * front_grip * _gravity / v2) + deg_to_rad(steer_grip_margin_deg)
 	var d := -_steer_smoothed * minf(deg_to_rad(max_steer_deg), grip_lim)   # stick right → −yaw
 
 	wheel_steer[2] = 0.0
@@ -638,16 +698,14 @@ func build_take_meta() -> Dictionary:
 			"input_steer": "-1 left .. +1 right (raw device)",
 			"t": "seconds relative to in point; handles are negative / beyond out",
 		},
-		"car_params": _tuning_snapshot(),
+		"car_params": active_profile.to_dict(),
+		"car_profile": {"name": active_profile.display_name, "path": active_profile.resource_path},
+		"world_profile": _world_meta(),
 	}
 
 
-func _tuning_snapshot() -> Dictionary:
-	var d := {}
-	for p in get_property_list():
-		var usage: int = p["usage"]
-		if usage & PROPERTY_USAGE_SCRIPT_VARIABLE and usage & PROPERTY_USAGE_STORAGE:
-			var v: Variant = get(p["name"])
-			if v is float or v is int or v is bool:
-				d[p["name"]] = v
-	return d
+func _world_meta() -> Dictionary:
+	var w := WorldProfile.active
+	if w == null:
+		return {}
+	return {"name": w.display_name, "path": w.resource_path, "params": w.to_dict()}

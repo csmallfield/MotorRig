@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_i8wr0"]
+
+[resource]
+script = ExtResource("1_i8wr0")
+display_name = "SUV AWD"
+description = "2 t, tall and soft: about a third more roll than the sedan (4.3 vs 3.3 deg at full lock), for camera-car moves. COM kept low enough that it cannot roll over on grip (SSF 1.29 g)."
+body_color = Color(0.35, 0.45, 0.3, 1)
+mass = 2000.0
+body_size = Vector3(1.45, 1.25, 4.8)
+com_offset = Vector3(0, -0.2, 0)
+wheelbase = 2.85
+track_front = 1.66
+track_rear = 1.66
+wheel_radius = 0.38
+wheel_width = 0.26
+hardpoint_height = -0.175
+driver_eye = Vector3(-0.32, 0.58, 0.2)
+susp_rest = 0.38
+susp_max_travel = 0.24
+spring_rate_front = 54500.0
+spring_rate_rear = 54500.0
+damp_bump = 3760.0
+damp_rebound = 5010.0
+arb_front = 4000.0
+arb_rear = 1000.0
+tire_mu = 1.0
+rear_grip = 1.1
+awd_rear_bias = 0.55
+engine_power_kw = 220.0
+max_drive_force = 12000.0
+top_speed_kmh = 200.0
+brake_force = 20000.0
+drag_coefficient = 0.6

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_xli3d"]
+
+[resource]
+script = ExtResource("1_xli3d")
+display_name = "Flat Pad"
+description = "The whole 800 m is flat: hit marks, measure stopping distances, no hills in the way."
+flat_radius = 5000.0

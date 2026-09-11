@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 — car & world profiles, start menu
+
+- **Car profiles** (`CarProfile` .tres): all car tuning + name, description, body colour,
+  driver eye, tuned-at rate, and new **traction control**. The Car node's tuning is no longer
+  in the Inspector; it's copied from the selected profile at spawn.
+- **World profiles** (`WorldProfile` .tres): terrain settings + gravity, tick rate,
+  **surface grip** and air density. Applied before anything else in the scene.
+- **Start menu** (new main scene): lists every profile in `res://profiles/*` and
+  `user://profiles/*`, shows summaries and descriptions, warns on tick mismatch, flags invalid
+  files, remembers the last choice. Gamepad-friendly. **Esc** / Tab > Menu to return.
+- Shipped: 4 cars (Sedan AWD reference, Hatchback FWD, Sports RWD, SUV AWD) and 4 worlds
+  (Default Hills, Flat Pad, Rough Country, Wet Hills).
+- Collision source now includes all terrain shape settings (hashed); the original default
+  terrain keeps its old ID so existing takes and scene exports still pair.
+- Takes record `car_profile`, `world_profile` (with params); the browser shows them.
+- Tests: reference tests pin the sedan + Default Hills; new `menu`, `car_profiles` (every car
+  on disk), `world_profiles` (every world on disk). 33 tests.
+
 ## 0.5.0 — scene geometry export
 
 - **Godot:** *Export Scene...* in the take browser writes terrain, props and marks (or an

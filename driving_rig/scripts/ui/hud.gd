@@ -28,6 +28,7 @@ Start   record / stop        R
 LB   take browser            Tab
 X   ghost play / pause       P
 View/Back   recover upright  Backspace
+                             Esc   back to the start menu
                              Home   reset to spawn
                              O   open takes folder
                              F1   toggle this help
@@ -78,6 +79,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			_car.reset_to_spawn()
 	elif event.is_action_pressed(&"open_takes_folder"):
 		OS.shell_open(ProjectSettings.globalize_path(_rec.takes_dir))
+	elif event.is_action_pressed(&"main_menu"):
+		if _rec.state != TakeRecorder.State.IDLE:
+			_flash("Finish the take before leaving")
+		elif get_node_or_null(^"/root/SimConfig"):
+			get_node(^"/root/SimConfig").go_menu()
 	elif event.is_action_pressed(&"toggle_help"):
 		_help_wanted = not _help_wanted
 

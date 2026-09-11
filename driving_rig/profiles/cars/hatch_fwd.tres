@@ -1,0 +1,33 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_8wxqj"]
+
+[resource]
+script = ExtResource("1_8wxqj")
+display_name = "Hatchback FWD"
+description = "Light front-driver: short wheelbase, soft springs, lively turn-in, mild lift-off rotation."
+body_color = Color(0.2, 0.55, 0.85, 1)
+mass = 1050.0
+body_size = Vector3(1.25, 0.95, 4)
+wheelbase = 2.5
+track_front = 1.5
+track_rear = 1.48
+wheel_radius = 0.31
+wheel_width = 0.2
+hardpoint_height = -0.1
+driver_eye = Vector3(-0.3, 0.44, 0.1)
+susp_rest = 0.3
+susp_max_travel = 0.17
+spring_rate_front = 34300.0
+spring_rate_rear = 34300.0
+damp_bump = 2160.0
+damp_rebound = 2880.0
+arb_front = 8000.0
+tire_mu = 1.1
+rear_grip = 1.05
+drive = 1
+engine_power_kw = 110.0
+max_drive_force = 7000.0
+top_speed_kmh = 190.0
+brake_force = 12000.0
+drag_coefficient = 0.4

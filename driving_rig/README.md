@@ -1,4 +1,4 @@
-# Driving Rig — v0.5.0
+# Driving Rig — v0.6.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -9,7 +9,8 @@ proxy rig in Maya 2026 with spin re-solve.
 ## Quick start
 
 1. Open `project.godot` in Godot **4.7** (Forward+). First open imports for a few seconds.
-2. F5. Xbox pad or keyboard. F1 toggles the help overlay.
+2. F5 opens the **start menu**: pick a car and a world, then DRIVE (gamepad: D-pad, A, Start).
+   Xbox pad or keyboard. F1 toggles the help overlay; **Esc** (or Tab > Menu) returns to the menu.
 3. Start (or R) → 3-2-1 → drive → Start again. Take is written after the 8-frame post-roll.
 4. Takes are written as `take_####.json.gz` (format v2 — see `docs/SCHEMA.md`).
 5. O opens the takes folder (`%APPDATA%\Godot\app_userdata\Driving Rig\takes\` on Windows).
@@ -136,25 +137,66 @@ The car builds its body, collider, shape casts and `steer → susp → spin → 
 its exported dimensions (Inspector → Car). The recorded `meta` comes from the same values,
 so the Maya proxy can never disagree with what you drove.
 
-## Tuning map
+## Profiles (tuning)
 
-All on the Car node, grouped in the Inspector. Tick rate is 240 Hz — tune *at* 240.
+All tuning lives in `.tres` resources, listed by the start menu straight from disk:
 
-- **Feel of the body:** `spring_rate_*`, `damp_bump/rebound`, `arb_front/rear`, `com_offset.y`.
-  Front ARB stiffer than rear = understeer bias. `tire_force_lift` > 0 reduces roll.
-- **Forgiveness:** `rear_grip` > `front_grip` (stability), `falloff_floor` (grip kept in a slide),
-  `peak_slip_angle_deg`, `abs_enabled`.
-- **Steering:** `steer_grip_margin_deg` — full stick = what the tires can use at the current
-  speed plus this margin. Raise it to allow provoked understeer; ~40 disables the limiter.
-- **Terrain:** `amplitude`, `octaves` (sharper crests → more airtime), `flat_radius`.
+| | project (ships with the rig) | yours |
+|---|---|---|
+| cars | `res://profiles/cars/` | `%APPDATA%\Godot\app_userdata\Driving Rig\profiles\cars\` |
+| worlds | `res://profiles/worlds/` | `...\profiles\worlds\` |
+
+**Make one:** in the editor's FileSystem dock, duplicate a profile, double-click it, edit it
+in the Inspector (grouped like the car: Dimensions, Suspension, Tires, Drivetrain, Steering),
+save. Hit **Rescan** in the menu (or restart). The menu's *Open my profiles folder* button opens
+the user location — use that for profiles you want to keep outside the project, or in an
+exported build. Broken files show as *invalid* in the list instead of crashing.
+
+**Car profile** — everything that was on the Car node, plus: `display_name`, `description`,
+`body_color` (tints the proxy), `driver_eye`, `tuned_at_hz`, and **`traction_control`**
+(caps drive force at the grip left after cornering: full throttle at full lock in the RWD car
+peaks at 2.6 deg of body slip with TC, an 18.9 deg power slide without).
+
+**World profile** — terrain (procedural settings or an imported scene) and world physics:
+`gravity`, `tick_hz`, **`surface_grip`** (tyre grip multiplier: ~0.7 wet, ~0.5 gravel,
+~0.15 snow) and `air_density_scale`. Grip and air are physics, not geometry: *Wet Hills* has
+the same collision source as *Default Hills*, so their scene exports and takes pair. Any
+change to terrain *shape* gets its own collision source, so the Maya mismatch warning works.
+
+The menu warns if a car's `tuned_at_hz` differs from the world's `tick_hz` (spring behaviour
+is rate-dependent). Every take records both profiles (`meta.car_profile`, `meta.world_profile`,
+full values in `meta.car_params` / `meta.world_profile.params`); the take browser shows them.
+
+Shipped profiles — all pass the stability tests below:
+
+| car | notes | full lock @80 | flick |
+|---|---|---|---|
+| Proxy Sedan AWD | the reference: every original test was tuned on it | 4.3 deg slip, 3.3 deg roll | 1.8 deg |
+| Hatchback FWD | 1050 kg, 110 kW, soft, short | 5.4 deg, 3.2 deg | 2.0 deg |
+| Sports RWD | 1350 kg, 300 kW, stiff, TC on | 2.7 deg, 1.8 deg | 1.3 deg |
+| SUV AWD | 2 t, soft and tall (SSF 1.29 g) | 4.4 deg, 4.3 deg | 1.7 deg |
+
+Worlds: **Default Hills**, **Flat Pad** (all 800 m flat), **Rough Country** (seed 777, 22 m
+hills, 4 octaves), **Wet Hills** (Default Hills at 70 % grip).
+
+**Other nodes** still tuned in the Inspector: the chase camera (`ChaseCam`: pivot height, arm
+length, pitch, FOV, follow sharpness) and the recorder (countdown, max length, handles,
+compression, takes folder).
+
+**If you tuned values on the Car node in `main.tscn` before 0.6.0:** those no longer apply —
+the profile does. Copy them into a car profile (open `main.tscn` in a text editor; they're the
+lines under `[node name="Car" ...]`).
 
 ## Tests
 
-After any retune, run the suite (Windows: use the **console** executable):
+After any retune — or after adding a profile — run the suite (Windows: the **console** exe):
 
     Godot_v4.7-stable_win64_console.exe --headless --path . --fixed-fps 240 --script res://tests/run_tests.gd
 
-Add test names after `--` to run a subset. Each test prints PASS/FAIL with measured values;
+Add test names after `--` to run a subset: `car_profiles` checks **every car profile on disk**
+(settle, full-lock corner, lift-off flick, no rollover), `world_profiles` every world (builds,
+physics applied, car settles), or one profile: `-- car:user://profiles/cars/mine.tres:corner`.
+The reference tests always use the sedan and Default Hills, whatever the menu has selected. Each test prints PASS/FAIL with measured values;
 the exit code is the failure count. Test takes go to `user://test_takes`, never your takes.
 The thresholds encode the spec's handling target, so a retune that makes the car snappy or
 twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
@@ -173,6 +215,9 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | export | v1 take re-encoded to valid v2 gz, 10× smaller |
 | scene_export | 7 OBJs, ground 160,801 verts / 320k tris; corner vertex on the height function to 0.0000 cm |
 | browser | list, replay, camera follow, input lock and restore |
+| menu | lists every profile on disk, selects, warns on tick mismatch, flags invalid files |
+| car_profiles | 4 cars x settle / full lock / flick — see the profile table |
+| world_profiles | 4 worlds: build, gravity/tick/grip applied, car settles |
 
 ### Python side (no Maya needed)
 

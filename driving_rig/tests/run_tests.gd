@@ -3,15 +3,19 @@ extends SceneTree
 ##
 ##   godot --headless --path . --fixed-fps 240 --script res://tests/run_tests.gd
 ##   godot --headless --path . --fixed-fps 240 --script res://tests/run_tests.gd -- corner_100 flick
+##   ... -- car_profiles                                   every car profile on disk
+##   ... -- car:user://profiles/cars/mine.tres:corner      one profile, one check (settle|corner|flick)
 ##
 ## (Windows: use the *console* exe, e.g. Godot_v4.7-stable_win64_console.exe.)
 ## Each test instantiates a fresh main scene. Takes go to user://test_takes, never your takes.
 ## Exit code = number of failures.
 
 const TAKES_DIR: String = "user://test_takes"
+const REF_CAR: String = "res://profiles/cars/sedan_awd.tres"
+const REF_WORLD: String = "res://profiles/worlds/default_hills.tres"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
-	"export", "scene_export", "browser"]
+	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch"]
 
 var queue: Array[String] = []
@@ -31,8 +35,17 @@ var last_take: String = ""
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	for a in (args if args.size() > 0 else ALL):
-		if a in ALL:
-			queue.append(a)
+		if a == "car_profiles":
+			for e: Dictionary in root.get_node("SimConfig").scan_cars():
+				if e["profile"]:
+					for kind in ["settle", "corner", "flick"]:
+						queue.append("car:%s:%s" % [e["path"], kind])
+		elif a == "world_profiles":
+			for e: Dictionary in root.get_node("SimConfig").scan_worlds():
+				if e["profile"]:
+					queue.append("world:%s" % e["path"])
+		elif a in ALL or a.begins_with("car:") or a.begins_with("world:"):
+			queue.append(a)   # e.g. car:res://profiles/cars/suv_awd.tres:corner
 		else:
 			print("unknown test: ", a)
 	DirAccess.make_dir_recursive_absolute(TAKES_DIR)
@@ -55,7 +68,12 @@ func _physics_process(_d: float) -> bool:
 		_start(cur)
 		return false
 	t += 1
-	if call("_t_" + cur) or t > 240 * 60:
+	var fn := "_t_" + cur
+	if cur.begins_with("car:"):
+		fn = "_t_car_" + cur.rsplit(":", true, 1)[1]
+	elif cur.begins_with("world:"):
+		fn = "_t_world"
+	if call(fn) or t > 240 * 60:
 		if t > 240 * 60:
 			_result(false, "timeout")
 		main.queue_free()
@@ -65,9 +83,20 @@ func _physics_process(_d: float) -> bool:
 
 
 func _start(test_name: String) -> void:
+	# Always pin profiles: the menu selection (SimConfig) must never change what tests measure.
+	Engine.physics_ticks_per_second = 240
 	main = load("res://scenes/main.tscn").instantiate()
-	if test_name in FLAT:
-		main.get_node("Terrain").flat_radius = 5000.0
+	var car_path := REF_CAR
+	var world: WorldProfile = load(REF_WORLD)
+	if test_name.begins_with("car:"):
+		car_path = test_name.split(":", true, 1)[1].rsplit(":", true, 1)[0]
+	if test_name.begins_with("world:"):
+		world = load(test_name.substr(6))
+	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick"):
+		world = world.duplicate()
+		world.flat_radius = 5000.0
+	main.get_node("Car").profile = load(car_path)
+	main.get_node("Terrain").profile = world
 	main.get_node("Recorder").takes_dir = TAKES_DIR
 	root.add_child(main)
 	car = main.get_node("Car")
@@ -81,7 +110,12 @@ func _start(test_name: String) -> void:
 
 func _result(ok: bool, detail: String) -> void:
 	results.append([cur, ok, detail])
-	print("%s  %-14s %s" % ["PASS" if ok else "FAIL", cur, detail])
+	var label := cur
+	if cur.begins_with("car:"):
+		label = "%s %s" % [cur.rsplit(":", true, 1)[0].get_file().get_basename(), cur.rsplit(":", true, 1)[1]]
+	elif cur.begins_with("world:"):
+		label = "world " + cur.get_file().get_basename()
+	print("%s  %-22s %s" % ["PASS" if ok else "FAIL", label, detail])
 
 
 func _finish() -> void:
@@ -132,7 +166,7 @@ func air_count() -> int:
 	return a
 
 func _predicted_ride_y() -> float:
-	var comp := car.mass * DrivingCar.GRAVITY * 0.25 / car.spring_rate_front
+	var comp := car.mass * car._gravity * 0.25 / car.spring_rate_front
 	return -(car.hardpoint_height - (car.susp_rest - comp) - car.wheel_radius)
 
 
@@ -363,12 +397,15 @@ func _t_record_replay() -> bool:
 		var png_ok := FileAccess.file_exists(TakeFormat.stem(st["saved"]) + ".png")
 		var kb := FileAccess.get_file_as_bytes(st["saved"]).size() / 1024.0
 		last_take = st["saved"]
+		var profiles_ok: bool = (meta.get("car_profile", {}) as Dictionary).get("name", "") == "Proxy Sedan AWD" \
+				and (meta.get("world_profile", {}) as Dictionary).get("name", "") == "Default Hills" \
+				and (meta.get("car_params", {}) as Dictionary).get("mass", 0.0) == 1200.0
 		var ok: bool = player.n == expected and compared == player.n and max_pos < 1e-4 and max_rot < 1e-3 \
 				and int(hdr["summary"]["samples"]) == expected and png_ok and player.format_version == 2 \
-				and str(st["saved"]).ends_with(".json.gz") and kb < 600.0 and prec[0] <= 1.0
+				and str(st["saved"]).ends_with(".json.gz") and kb < 600.0 and prec[0] <= 1.0 and profiles_ok
 		_result(ok, "v%d %s, %.0f KB for 10 s · %d samples (expect %d) · every channel within its stated precision of the raw data (worst: %s at %.2f×) · ghost vs live: wheel pos err %.4f mm, rot err %.6f · thumbnail %s" % [
 			player.format_version, str(st["saved"]).get_file(), kb, player.n, expected, prec[1], prec[0],
-			max_pos * 1000.0, max_rot, png_ok])
+			max_pos * 1000.0, max_rot, png_ok] + (" · profiles in meta" if profiles_ok else " · PROFILES MISSING FROM META"))
 		return true
 	return false
 
@@ -542,3 +579,125 @@ func _t_browser() -> bool:
 			st["items"], advanced, following, blocked, restored])
 		return true
 	return false
+
+
+# === profiles ===
+
+## Every car profile on disk: settles cleanly at its own ride height.
+func _t_car_settle() -> bool:
+	var y := car.global_position.y
+	if sec() > 3.0 and sec() <= 5.0:
+		st["lo"] = minf(st.get("lo", 99.0), y)
+		st["hi"] = maxf(st.get("hi", -99.0), y)
+	if t == 5 * 240:
+		var jit: float = (st["hi"] - st["lo"]) * 1000.0
+		var err := absf(y - _predicted_ride_y()) * 1000.0
+		var tilt := maxf(absf(roll_deg()), absf(pitch_deg()))
+		_result(jit < 0.5 and err < 3.0 and tilt < 0.1, "%s: jitter %.3f mm · ride height err %.2f mm · tilt %.3f deg" % [
+			car.active_profile.display_name, jit, err, tilt])
+		return true
+	return false
+
+
+## Full lock at 80 km/h: no spin, no wobble, no rollover.
+func _t_car_corner() -> bool:
+	if t == 1:
+		place(Vector3(280, 1.0, 280), PI * 0.25)
+	if not st.has("go"):
+		drive(1.0, 0.0, 0.0)
+		if kmh() >= 80.0:
+			st["go"] = sec()
+			st["yr"] = PackedFloat64Array()
+		return false
+	drive(clampf((80.0 - kmh()) * 0.1, 0.0, 1.0), 0.0, 1.0)
+	var el: float = sec() - st["go"]
+	st["slip"] = maxf(st.get("slip", 0.0), absf(body_slip_deg()))
+	st["roll"] = maxf(st.get("roll", 0.0), absf(roll_deg()))
+	st["minup"] = minf(st.get("minup", 1.0), car.global_basis.y.y)
+	if el > 2.0:
+		st["yr"].append(car.angular_velocity.y)
+	if el > 4.0:
+		var yr: PackedFloat64Array = st["yr"]
+		var m := 0.0
+		for v in yr:
+			m += v
+		m /= yr.size()
+		var sd := 0.0
+		for v in yr:
+			sd += (v - m) * (v - m)
+		sd = sqrt(sd / yr.size())
+		var ok: bool = st["slip"] < 15.0 and sd < 0.08 and st["roll"] < 12.0 and st["minup"] > 0.9
+		_result(ok, "%s full lock @80: body slip %.1f deg · yaw s.d. %.3f · roll %.1f deg · upright %s" % [
+			car.active_profile.display_name, st["slip"], sd, st["roll"], st["minup"] > 0.9])
+		return true
+	return false
+
+
+## Lift-off flick near the car's pace: stays catchable.
+func _t_car_flick() -> bool:
+	var target := minf(110.0, car.top_speed_kmh * 0.6)
+	if t == 1:
+		place(Vector3(280, 1.0, 280), PI * 0.25)
+	if not st.has("go"):
+		drive(1.0, 0.0, 0.0)
+		if kmh() >= target:
+			st["go"] = sec()
+		return false
+	var el: float = sec() - st["go"]
+	drive(0.0, 0.0, 0.35 if el < 0.4 else (-0.35 if el < 0.8 else 0.0))
+	st["slip"] = maxf(st.get("slip", 0.0), absf(body_slip_deg()))
+	if el > 3.0:
+		_result(st["slip"] < 12.0 and car.global_basis.y.y > 0.9, "%s flick @%d: max body slip %.1f deg" % [
+			car.active_profile.display_name, target, st["slip"]])
+		return true
+	return false
+
+
+## Every world profile on disk: builds, applies its physics, and the reference car settles.
+func _t_world() -> bool:
+	if t == 4 * 240:
+		var w: WorldProfile = main.get_node("Terrain").profile
+		var terrain: Terrain = main.get_node("Terrain")
+		var g: float = PhysicsServer3D.area_get_param(car.get_world_3d().space, PhysicsServer3D.AREA_PARAM_GRAVITY)
+		var settled := absf(car.linear_velocity.y) < 0.01 and car.global_basis.y.y > 0.999
+		var ok: bool = terrain.collision_source_id != "" and WorldProfile.active == w \
+				and Engine.physics_ticks_per_second == w.tick_hz and is_equal_approx(g, w.gravity) \
+				and is_equal_approx(car.surface_grip, w.surface_grip) and settled
+		_result(ok, "%s: %s · g %.2f · %d Hz · grip %.2f · car settled %s" % [w.display_name,
+			terrain.collision_source_id, g, Engine.physics_ticks_per_second, car.surface_grip, settled])
+		return true
+	return false
+
+
+## The start menu lists what's on disk, selects, and warns on a tick mismatch — without
+## disturbing the user's saved selection.
+func _t_menu() -> bool:
+	var cfg: Node = root.get_node("SimConfig")
+	var keep_car: String = cfg.car_path
+	var keep_world: String = cfg.world_path
+	var menu: Control = load("res://scenes/menu.tscn").instantiate()
+	main.add_child(menu)
+	var cars: int = cfg.scan_cars().size()
+	var worlds: int = cfg.scan_worlds().size()
+	var listed: bool = menu.item_count(true) == cars and menu.item_count(false) == worlds and cars >= 4 and worlds >= 4
+	var picked: bool = cfg.select("res://profiles/cars/sports_rwd.tres", "res://profiles/worlds/wet_hills.tres") \
+			and cfg.car_profile.display_name == "Sports RWD" and cfg.world_profile.surface_grip == 0.7
+	var clean: bool = cfg.warnings().is_empty()
+	var fast: WorldProfile = (cfg.world_profile as WorldProfile).duplicate()
+	fast.tick_hz = 120
+	cfg.world_profile = fast
+	var warned: bool = cfg.warnings().size() == 1
+	var bogus := FileAccess.open("user://profiles/cars/zz_not_a_profile.tres", FileAccess.WRITE)
+	bogus.store_string("[gd_resource type=\"Resource\" format=3]\n[resource]\n")
+	bogus.close()
+	var flagged := false
+	for e: Dictionary in cfg.scan_cars():
+		if String(e["path"]).ends_with("zz_not_a_profile.tres"):
+			flagged = e["profile"] == null and e["error"] != ""
+	DirAccess.remove_absolute("user://profiles/cars/zz_not_a_profile.tres")
+	if keep_car != "" and keep_world != "":
+		cfg.select(keep_car, keep_world)
+	_result(listed and picked and clean and warned and flagged,
+		"%d cars, %d worlds listed · select ok %s · tick-mismatch warning %s · invalid file flagged %s" % [
+		cars, worlds, picked, warned, flagged])
+	return true

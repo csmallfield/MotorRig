@@ -210,7 +210,14 @@ func _show_details(f: String) -> void:
 		float(s.get("duration_s", 0)), int(s.get("samples", 0)), float(s.get("distance_m", 0)),
 		float(s.get("peak_speed_kmh", 0)), float(s.get("max_lateral_g", 0)), float(s.get("max_longitudinal_g", 0)),
 		float(s.get("airtime_s", 0)), int(s.get("airtime_ticks", 0)),
-		str(m.get("collision_source", "")), str(m.get("godot_version", "?")), str(m.get("rig_version", "?"))]
+		_profiles_line(m), str(m.get("godot_version", "?")), str(m.get("rig_version", "?"))]
+
+
+func _profiles_line(m: Dictionary) -> String:
+	var car: String = (m.get("car_profile", {}) as Dictionary).get("name", "")
+	var world: String = (m.get("world_profile", {}) as Dictionary).get("name", "")
+	var ground := str(m.get("collision_source", ""))
+	return ("%s on %s  |  %s" % [car, world, ground]) if car != "" else ground
 
 
 func _thumb(f: String) -> Texture2D:
@@ -451,6 +458,14 @@ func _build_ui() -> void:
 	scene_btn.tooltip_text = "Write the terrain and props as OBJ files (cm, Y-up, world space) for Maya"
 	scene_btn.pressed.connect(_on_export_scene)
 	head.add_child(scene_btn)
+	var menu_btn := Button.new()
+	menu_btn.text = "Menu"
+	menu_btn.tooltip_text = "Back to the start menu to pick another car or world (Esc)"
+	menu_btn.pressed.connect(func() -> void:
+		var cfg := get_node_or_null(^"/root/SimConfig")
+		if cfg:
+			cfg.go_menu())
+	head.add_child(menu_btn)
 	var folder := Button.new()
 	folder.text = "Folder"
 	folder.tooltip_text = "Open the takes folder (O)"

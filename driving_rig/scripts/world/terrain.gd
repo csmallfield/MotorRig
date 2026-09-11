@@ -12,19 +12,21 @@ enum Source { PROCEDURAL, SCENE }
 
 const LAYER_WORLD: int = 1
 
-@export var source: Source = Source.PROCEDURAL
-@export_group("Procedural")
-@export var seed_value: int = 1234
-@export var size: float = 800.0
-@export var cell: float = 2.0
-@export var flat_radius: float = 150.0
-@export var blend_distance: float = 120.0
-@export var amplitude: float = 14.0
-@export var frequency: float = 0.006
-@export_range(1, 6) var octaves: int = 3   ## more octaves = sharper crests = more airtime
-@export var build_test_props: bool = true
-@export_group("Scene")
-@export var imported_scene: PackedScene
+## --- Geometry: set from a WorldProfile (scripts/profiles/world_profile.gd). ---
+var source: Source = Source.PROCEDURAL
+var seed_value: int = 1234
+var size: float = 800.0
+var cell: float = 2.0
+var flat_radius: float = 150.0
+var blend_distance: float = 120.0
+var amplitude: float = 14.0
+var frequency: float = 0.006
+var octaves: int = 3   ## more octaves = sharper crests = more airtime
+var build_test_props: bool = true
+var imported_scene: PackedScene
+## Explicit profile (tests, tools). Otherwise SimConfig's selection, else built-in defaults.
+@export var profile: WorldProfile
+
 @export_group("Materials")
 @export var material: Material
 @export var props_material: Material
@@ -37,6 +39,7 @@ var _noise := FastNoiseLite.new()
 
 
 func _ready() -> void:
+	_apply_profile(_resolve_profile())
 	match source:
 		Source.PROCEDURAL:
 			_build_procedural()
@@ -44,6 +47,38 @@ func _ready() -> void:
 				_build_test_props()
 		Source.SCENE:
 			_build_from_scene()
+
+
+# === PROFILE ===
+
+func _resolve_profile() -> WorldProfile:
+	if profile:
+		return profile
+	var cfg := get_node_or_null(^"/root/SimConfig")
+	if cfg and cfg.get("world_profile"):
+		return cfg.get("world_profile")
+	return WorldProfile.new()
+
+
+## Geometry onto this node; physics onto the engine and the physics space. Runs first in the
+## scene (Terrain is the first child of Main), so the car and recorder see it.
+func _apply_profile(p: WorldProfile) -> void:
+	for n in ["source", "imported_scene", "seed_value", "size", "cell", "flat_radius",
+			"blend_distance", "amplitude", "frequency", "octaves", "build_test_props"]:
+		set(n, p.get(n))
+	WorldProfile.active = p
+	Engine.physics_ticks_per_second = p.tick_hz
+	PhysicsServer3D.area_set_param(get_world_3d().space, PhysicsServer3D.AREA_PARAM_GRAVITY, p.gravity)
+
+
+## Geometry parameters beyond seed/size/cell, hashed. Empty for the original default
+## terrain, so takes and scene exports made before profiles keep matching.
+func _geometry_suffix() -> String:
+	var legacy := is_equal_approx(flat_radius, 150.0) and is_equal_approx(blend_distance, 120.0) \
+			and is_equal_approx(amplitude, 14.0) and is_equal_approx(frequency, 0.006) and octaves == 3
+	if legacy:
+		return ""
+	return "_g%s" % ("%s|%s|%s|%s|%d" % [flat_radius, blend_distance, amplitude, frequency, octaves]).md5_text().left(8)
 
 
 # === PROCEDURAL ===
@@ -121,7 +156,7 @@ func _build_procedural() -> void:
 	shape.set_faces(faces)
 	_add_static("Ground", shape, Transform3D.IDENTITY)
 
-	collision_source_id = "proc_heightmap_seed%d_%dm_cell%.2f" % [seed_value, int(size), cell]
+	collision_source_id = "proc_heightmap_seed%d_%dm_cell%.2f%s" % [seed_value, int(size), cell, _geometry_suffix()]
 
 
 func _build_test_props() -> void:
