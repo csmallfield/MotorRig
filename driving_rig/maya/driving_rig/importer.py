@@ -19,8 +19,8 @@ import maya.api.OpenMaya as om
 
 from . import __version__, bake, mathutil as mu, rig, scene_io, take_io
 from .mayautil import (RIG_ATTR, SCENE_ATTR, add_attr, all_rig_roots, all_scene_roots, exact_fps,
-                       find_rig_root, mtime_unit, namespace_of, scene_units, set_scene_fps,
-                       world_group, world_matrix, write_curve)
+                       find_rig_root, mtime_unit, namespace_of, put_in_world, scene_units,
+                       set_scene_fps, world_matrix, write_curve)
 from .take_io import WHEELS
 
 
@@ -108,7 +108,7 @@ def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_rang
         if set_range:
             cmds.playbackOptions(minTime=frames[0], maxTime=frames[-1],
                                  animationStartTime=frames[0], animationEndTime=frames[-1])
-        root = cmds.parent(root, world_group(world_scale), relative=True)[0]
+        root = put_in_world(root, world_scale)
 
     report = _format_report(name, b.spin_report, b.radius_warn)
     warn = _ground_mismatch(str(take.meta.get("collision_source", "")), SCENE_ATTR)
@@ -235,7 +235,7 @@ def import_scene(path, name=None, world_scale=None, verbose=True):
             cmds.setAttr(grp + ".rotateX", 90.0)
         for obj in scene.objects:
             _build_mesh(obj, ns, grp)
-        grp = cmds.parent(grp, world_group(world_scale), relative=True)[0]
+        grp = put_in_world(grp, world_scale)
     lines = ["Imported scene %s - %d objects (%s)" % (base, len(scene.objects), ", ".join(
         "%s%s" % (o.name, "" if o.collides else " [visual only]") for o in scene.objects))]
     warn = _ground_mismatch(scene.collision_source, RIG_ATTR)

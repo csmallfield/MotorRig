@@ -421,6 +421,21 @@ class MayaImport(unittest.TestCase):
         self.assertLess(max(abs(a - b) for a, b in zip(before, after)), 0.01)
         self.assertLess(abs(reps["RL"]["radius_error_percent"]), bake.RADIUS_WARN_PERCENT)
 
+    def test_first_import_into_fresh_scene(self):
+        """Regression (0.7.0): the first import created the world group, which adopted the
+        new rig, then parenting it again made Maya return None and the import crashed before
+        writing its report. Take first, then scene - and the reverse."""
+        from driving_rig import mayautil
+        c = self.cmds
+        for order in (("take", "scene"), ("scene", "take")):
+            c.file(new=True, force=True)
+            self.assertFalse(c.objExists(mayautil.WORLD))
+            for what in order:
+                node = self._import() if what == "take" else self._scene()
+                self.assertTrue(c.attributeQuery("drvLastCheck", node=node, exists=True), what)  # reached the end
+                self.assertEqual(c.listRelatives(node, parent=True)[0], mayautil.WORLD)
+            self.importer.resolve_spin(self.importer.list_rigs()[0], verbose=False)
+
     def test_world_group_adopts_older_imports(self):
         from driving_rig import mayautil
         c = self.cmds

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 — Maya fix
+
+- **Fix:** the first take or scene imported into a Maya scene raised `TypeError: 'NoneType'
+  object is not subscriptable` after keying. Creating `DrivingRig_world` adopted the new rig,
+  and parenting it again made Maya return None; the import stopped before writing its report
+  (so Re-solve Spin could fail on that rig - re-import it). Now `put_in_world()` checks first.
+- Regression test: fresh scene, take then scene and scene then take. The test fake now
+  mirrors Maya's "already a child" behaviour, which is why 0.7.0's tests missed it.
+
 ## 0.7.0 — cameras, steering wheel, custom chassis, Maya world scale
 
 - **Cameras:** seven new ones (heli, front tracking, Russian-arm side, wheel mount, bumper,

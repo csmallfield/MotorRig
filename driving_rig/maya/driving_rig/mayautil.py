@@ -163,6 +163,17 @@ def world_group(scale=None):
     return WORLD
 
 
+def put_in_world(node, scale=None):
+    """Parent `node` under the world group (creating it if needed) and return its name.
+    Creating the group adopts every loose rig/scene - which can include `node` itself - and
+    Maya's parent() returns None for "already a child", so check instead of assuming."""
+    grp = world_group(scale)
+    parents = cmds.listRelatives(node, parent=True) or []
+    if parents and parents[0] == grp:
+        return node
+    return cmds.parent(node, grp, relative=True)[0]
+
+
 def get_world_scale():
     return cmds.getAttr(WORLD + ".worldScale") if cmds.objExists(WORLD) else None
 
