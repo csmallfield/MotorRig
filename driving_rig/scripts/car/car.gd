@@ -16,6 +16,7 @@ extends RigidBody3D
 ##   slip_lat           slip angle in rad (atan2(v_lat, max(|v_long|, ref)))
 
 signal teleported
+signal gear_changed(reversing: bool)
 
 enum Drive { RWD, FWD, AWD }
 
@@ -57,7 +58,12 @@ var front_grip: float = 1.0
 var rear_grip: float = 1.08           ## > front: understeer bias, no snap oversteer
 var peak_slip_angle_deg: float = 8.0
 var falloff_width_deg: float = 25.0
-var falloff_floor: float = 0.82   ## grip kept at full slide
+var falloff_floor: float = 0.82   ## grip kept at full slide (per-axle values below)
+## Grip a fully sliding tyre keeps, per axle. The front's is what lets you still steer when the
+## wheels are wound past their best angle; the rear's decides whether a slide is progressive or
+## a spin you can't catch. Set from the car profile, then scaled by the drive mode.
+var falloff_floor_front: float = 0.82
+var falloff_floor_rear: float = 0.82
 var low_speed_slip_ref: float = 3.0   ## m/s — keeps slip angle sane at crawl
 var rolling_resistance: float = 0.012
 var tire_force_lift: float = 0.0      ## raise tire force point → less roll
@@ -69,6 +75,8 @@ var max_drive_force: float = 9000.0
 var top_speed_kmh: float = 220.0
 var reverse_force: float = 4000.0
 var reverse_top_speed_kmh: float = 35.0
+## Reverse can only be selected below this (m/s).
+var gear_change_speed: float = 2.0
 var brake_force: float = 14000.0
 var brake_bias_front: float = 0.65
 var abs_enabled: bool = true
@@ -133,6 +141,8 @@ var input_throttle: float = 0.0
 var input_brake: float = 0.0
 var input_steer: float = 0.0        ## −1 full left … +1 full right
 var input_handbrake: bool = false
+## Gamepad X / keyboard X: toggles reverse gear at a standstill. The brake is only ever a brake.
+var input_reverse_toggle: bool = false
 
 # === PUBLIC STATE (read by recorder / HUD every tick — never reassigned, only indexed) ===
 var wheel_compression := PackedFloat64Array()
@@ -159,7 +169,6 @@ var _raw_comp := PackedFloat64Array()
 var _prev_comp := PackedFloat64Array()
 var _susp_force := PackedFloat64Array()
 var _steer_smoothed: float = 0.0
-var _reverse_timer: float = 0.0
 var _corner_mass: float = 300.0
 var _static_load: float = 2943.0
 var _pending_reset: bool = false
@@ -216,6 +225,9 @@ func _apply_profile(p: CarProfile) -> void:
 		var n: String = prop["name"]
 		if n in ["display_name", "description", "tuned_at_hz"]:
 			continue
+		if n == "falloff_floor":
+			falloff_floor_front = p.falloff_floor
+			falloff_floor_rear = p.falloff_floor
 		if prop["type"] == TYPE_NIL:
 			continue
 		set(n, p.get(n))
@@ -493,9 +505,6 @@ func _physics_process(delta: float) -> void:
 	var drive_total := _drive_force()
 	var brake_in := brake
 	var throttle_in := throttle
-	if is_reversing:
-		brake_in = throttle
-		throttle_in = brake
 	var holding := throttle_in < 0.02 and absf(forward_speed) < 0.6
 
 
@@ -544,7 +553,7 @@ func _physics_process(delta: float) -> void:
 
 		# Lateral: slip-angle grip curve, blended into a velocity-cancelling hold at crawl.
 		var alpha := atan2(vs, maxf(abs_vl, low_speed_slip_ref))
-		var f_lat := -signf(alpha) * _grip_curve(absf(alpha)) * fmax
+		var f_lat := -signf(alpha) * _grip_curve(absf(alpha), front) * fmax
 		var crawl := (1.0 - clampf(v.length() / 2.0, 0.0, 1.0)) if low_speed_hold else 0.0
 		if crawl > 0.0:
 			f_lat = lerpf(f_lat, -vs * _corner_mass / delta * 0.35, crawl)
@@ -663,13 +672,13 @@ func wheel_grounded_raw(i: int) -> bool:
 
 ## Generous curve: smooth rise to peak (zero slope at peak), then a slow ease down
 ## to `falloff_floor`. No cliff, so a slide stays catchable.
-func _grip_curve(alpha_abs: float) -> float:
+func _grip_curve(alpha_abs: float, front: bool) -> float:
 	var peak := deg_to_rad(peak_slip_angle_deg)
 	if alpha_abs <= peak:
 		var x := alpha_abs / peak
 		return x * (2.0 - x)
 	var t := clampf((alpha_abs - peak) / deg_to_rad(falloff_width_deg), 0.0, 1.0)
-	return lerpf(1.0, falloff_floor, t * t * (3.0 - 2.0 * t))
+	return lerpf(1.0, falloff_floor_front if front else falloff_floor_rear, t * t * (3.0 - 2.0 * t))
 
 
 func _drive_share(i: int) -> float:
@@ -683,24 +692,20 @@ func _drive_share(i: int) -> float:
 			return (1.0 - awd_rear_bias) * 0.5 if front else awd_rear_bias * 0.5
 
 
-func _drive_force() -> float:
-	# Gear: holding brake at a standstill engages reverse; throttle at a standstill leaves it.
-	if not is_reversing:
-		if brake > 0.1 and throttle < 0.05 and forward_speed < 0.5:
-			_reverse_timer += get_physics_process_delta_time()
-			if _reverse_timer > 0.25:
-				is_reversing = true
-				_reverse_timer = 0.0
-		else:
-			_reverse_timer = 0.0
-	elif throttle > 0.1 and brake < 0.05 and forward_speed > -0.5:
-		is_reversing = false
-		_reverse_timer = 0.0
+## Gear change (X). Only at a crawl, so you can't slam it into reverse at speed.
+func toggle_reverse() -> bool:
+	if absf(forward_speed) > gear_change_speed:
+		return false
+	is_reversing = not is_reversing
+	gear_changed.emit(is_reversing)
+	return true
 
+
+func _drive_force() -> float:
 	var speed := absf(forward_speed)
 	if is_reversing:
 		var fade_r := clampf(1.0 - pow(speed / (reverse_top_speed_kmh / 3.6), 6.0), 0.0, 1.0)
-		return -brake * reverse_force * fade_r
+		return -throttle * reverse_force * fade_r
 	var cap := minf(max_drive_force, engine_power_kw * 1000.0 / maxf(speed, 1.0))
 	var fade := clampf(1.0 - pow(speed / (top_speed_kmh / 3.6), 6.0), 0.0, 1.0)
 	return throttle * cap * fade
@@ -752,6 +757,11 @@ func _poll_player_input() -> void:
 	input_brake = Input.get_action_strength(&"brake")
 	input_steer = Input.get_axis(&"steer_left", &"steer_right")
 	input_handbrake = Input.is_action_pressed(&"handbrake")
+	if Input.is_action_just_pressed(&"reverse"):
+		input_reverse_toggle = true
+	if input_reverse_toggle:
+		input_reverse_toggle = false
+		toggle_reverse()
 
 
 # === RESET ===

@@ -1,4 +1,4 @@
-# Driving Rig — v0.9.0
+# Driving Rig — v0.9.2
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -21,10 +21,11 @@ proxy rig in Maya 2026 with spin re-solve.
 | RT / LT | W / S (↑ / ↓) | throttle / brake — hold brake at a stop to reverse |
 | Left stick | A / D (← / →) | steer |
 | B | Space | handbrake |
+| X | X | reverse gear (only at a standstill) — the left trigger is only ever the brake |
 | Y | C | next camera (9 angles) — number keys 1-9 jump to one |
 | Start | R | record / stop (cancels during countdown) |
 | LB | Tab | take browser |
-| X | P | ghost play / pause |
+| RB | P | ghost play / pause |
 | View/Back | Backspace | recover upright in place |
 | — | Home | reset to spawn |
 
@@ -259,8 +260,8 @@ nothing at all**: every number in the table above and in the tests is measured w
 | mode | what it does |
 |---|---|
 | **Standard** | the reference. Linear pedals, ABS on, steering limited to what the tyres can use. |
-| **Loose** | exponential pedals (^2), no ABS or TC, full steering lock at any speed, brakes ×2.6 that lock all four wheels, looser rear, higher COM. Drift, donut, spin; lifts the inside wheels in a hard corner. |
-| **Drift** | Loose with a rear that lets go early and stays gone, and the power to hold the angle. |
+| **Loose** | exponential pedals (^2), no ABS or TC, full steering lock at any speed, brakes ×2.6 that lock all four wheels. Composed when you're smooth; slides on throttle, handbrake or lift, and comes back when you countersteer. |
+| **Drift** | Loose with more power and a rear that lets go earlier and stays out longer. |
 | **Low Grip** | Loose on a surface at 55 % grip. Pair with Wet Hills for less again. |
 | **Stunt** | Loose, deliberately top-heavy: hold a hard corner at the grip limit and it goes over. |
 
@@ -268,8 +269,22 @@ Knobs worth knowing: `throttle_gamma` / `brake_gamma` / `steer_gamma` (trigger c
 finer control near the bottom and a much harder bite at the top), `steer_grip_margin_deg`
 (−1 keeps the car profile's limiter; 40 = full lock at any speed, ask for more than the tyres
 have and you'll understeer or spin), `abs_mode` / `traction_control_mode`, force multipliers,
-grip multipliers, `com_raise` (+0.20 lifts the inside wheels; +0.26 and up rolls on flat
-ground), `low_speed_hold` and `kerb_trip`.
+grip multipliers, `low_speed_hold` and `kerb_trip`, and — the ones that decide whether a mode
+is drivable at all:
+
+- **`falloff_floor_front_scale` / `falloff_floor_rear_scale`** — how much grip a fully sliding
+  tyre keeps, per axle. The **front** decides whether the car still turns when you wind the
+  wheel past what the tyres can use: keep it high (1.1–1.2) or full lock just plows straight on.
+  The **rear** decides how a slide behaves: high is progressive and catchable, low spins and
+  stays spun. Below about 0.85 the car gets very hard to drive.
+- **`peak_slip_angle_scale`** — the slip angle where the tyres make their most grip. **Leave
+  this at 1.0.** Raising it is the single fastest way to make a car feel like it's on ice:
+  at 1.6 the tyres make ~30 % less grip at the small slip angles you drive at every corner,
+  so the car has to slide before it bites. Use `falloff_width_scale` (1.4–1.6) for warning
+  instead — it widens the *far* side of the peak without softening turn-in.
+- **`com_raise`** — raises the centre of mass. Small values add lean; **0.20 and up unloads the
+  inside wheels in any corner and makes the car skate**, so it belongs only in Stunt (0.32),
+  where going over is the point.
 
 Measured, sedan on flat ground, Standard vs Loose:
 
@@ -278,9 +293,12 @@ Measured, sedan on flat ground, Standard vs Loose:
 | 100→0 braking | 1.09 g, wheels never lock (slip −0.12) | 1.10 g, **all four lock** (slip −1.0) |
 | 0–30 / 0–100 | 1.43 s / 4.61 s | 1.18 s / 3.61 s |
 | full stick at 120 km/h | 4.1° of road-wheel angle | **27.8°** |
-| donut | 90° of slip, collapses to 19 km/h | **180° sustained, 3.2 rad/s at 34 km/h** |
+| handbrake donut | 90° of slip, collapses to 19 km/h | **116° sustained at 2.9 rad/s** |
+| grip at 4° / 8° of slip | 0.86 g / 1.15 g | **identical** (0.86 / 1.15), and holds 1.12 g at 32° where Standard drops to 0.94 |
+| brake pedal at which the wheels lock | never | **70 %** — threshold-brake below it, lock above |
 | drift held past 15° | — | **3.2 s of 3.5, up to 79 km/h** |
-| hard corner at the limit | 3° of lean | 7°, inside wheels lift (Stunt: rolls right over) |
+| steady corner at 80 km/h | 131 m radius, 1° of slip | 36 m radius, 11° of slip, holds 68 km/h |
+| full lock at 80 km/h | 60 m radius | 24 m radius (1.35× the tightest its tyres allow) |
 
 **Rolling over:** a car with these tyres can't be tipped by grip alone (it would need ~1.3 g and
 makes ~1.0), which is true of real cars too. So Loose lifts wheels but stays upright; roll it by
@@ -333,6 +351,8 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | drive_modes | every mode on disk: builds, applies, drives straight; Standard proven neutral |
 | mode_loose | all four wheels lock · 28° of lock at 120 km/h · sustained 180° donut at 34 km/h |
 | mode_stunt | hard corner rolls it upside down; a quick flick does not |
+| mode_drivable | every mode except Stunt: tracks straight at full throttle, a steady corner stays a corner, and full lock actually turns rather than plowing |
+| reverse_gear | the brake only brakes; X selects reverse at a standstill and is refused at speed |
 | car_profiles | 4 cars x settle / full lock / flick — see the profile table |
 | world_profiles | 4 worlds: build, gravity/tick/grip applied, car settles |
 

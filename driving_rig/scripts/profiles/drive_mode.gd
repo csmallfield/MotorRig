@@ -45,9 +45,18 @@ extends Resource
 @export_range(0.25, 2.0) var front_grip_scale: float = 1.0
 ## < 1 = the rear lets go first: power oversteer, drifts, donuts.
 @export_range(0.25, 2.0) var rear_grip_scale: float = 1.0
-## x the car profile's falloff_floor - how much grip a fully sliding tyre keeps. Lower makes a
-## slide keep going once it starts (and harder to catch).
-@export_range(0.3, 1.2) var falloff_floor_scale: float = 1.0
+## Grip a fully sliding tyre keeps, x the car profile's falloff_floor - separately per axle.
+## FRONT decides whether the car still turns when you wind the wheel past what the tyres can
+## use: keep it high (1.1-1.2) or full lock just plows straight on. REAR decides how a slide
+## behaves: high = progressive and catchable, low = it spins and stays spun. Below about 0.85
+## the car gets very hard to drive.
+@export_range(0.3, 1.25) var falloff_floor_front_scale: float = 1.0
+@export_range(0.3, 1.25) var falloff_floor_rear_scale: float = 1.0
+## Slip angle where tyres make their most grip, x the car profile's 8 deg. Wider = more warning
+## before they let go, and easier to hold an angle.
+@export_range(0.5, 3.0) var peak_slip_angle_scale: float = 1.0
+## Width of the falloff past the peak, x the car profile's. Wider = gentler, more progressive.
+@export_range(0.5, 3.0) var falloff_width_scale: float = 1.0
 @export_range(0.25, 2.0) var handbrake_rear_grip_scale: float = 1.0
 ## Raises the centre of mass, metres (+ = higher = more roll, and easier to trip over a kerb).
 @export var com_raise: float = 0.0
@@ -78,7 +87,11 @@ func apply_to(car: Node) -> void:
 	car.set("tire_mu", float(car.get("tire_mu")) * tire_mu_scale)
 	car.set("front_grip", float(car.get("front_grip")) * front_grip_scale)
 	car.set("rear_grip", float(car.get("rear_grip")) * rear_grip_scale)
-	car.set("falloff_floor", clampf(float(car.get("falloff_floor")) * falloff_floor_scale, 0.0, 1.0))
+	var floor_base: float = float(car.get("falloff_floor"))
+	car.set("falloff_floor_front", clampf(floor_base * falloff_floor_front_scale, 0.0, 1.0))
+	car.set("falloff_floor_rear", clampf(floor_base * falloff_floor_rear_scale, 0.0, 1.0))
+	car.set("peak_slip_angle_deg", float(car.get("peak_slip_angle_deg")) * peak_slip_angle_scale)
+	car.set("falloff_width_deg", float(car.get("falloff_width_deg")) * falloff_width_scale)
 	car.set("handbrake_rear_grip", clampf(float(car.get("handbrake_rear_grip")) * handbrake_rear_grip_scale, 0.0, 1.0))
 	car.set("kerb_trip", kerb_trip)
 	if not is_zero_approx(com_raise):

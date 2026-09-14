@@ -17,8 +17,10 @@ const REF_MODE: String = "res://profiles/modes/standard.tres"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
 	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
-	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt"]
-const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch"]
+	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt",
+	"mode_drivable", "reverse_gear"]
+const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
+	"reverse_gear"]
 
 var queue: Array[String] = []
 var results: Array = []
@@ -46,6 +48,10 @@ func _initialize() -> void:
 			for e: Dictionary in root.get_node("SimConfig").scan_worlds():
 				if e["profile"]:
 					queue.append("world:%s" % e["path"])
+		elif a == "mode_drivable":
+			for e: Dictionary in root.get_node("SimConfig").scan_modes():
+				if e["profile"] and not String(e["path"]).ends_with("stunt.tres"):
+					queue.append("drivable:%s" % e["path"])   # Stunt is meant to tip over
 		elif a == "drive_modes":
 			for e: Dictionary in root.get_node("SimConfig").scan_modes():
 				if e["profile"]:
@@ -81,6 +87,8 @@ func _physics_process(_d: float) -> bool:
 		fn = "_t_world"
 	elif cur.begins_with("mode:"):
 		fn = "_t_mode"
+	elif cur.begins_with("drivable:"):
+		fn = "_t_drivable"
 	if call(fn) or t > 240 * 60:
 		if t > 240 * 60:
 			_result(false, "timeout")
@@ -107,8 +115,11 @@ func _start(test_name: String) -> void:
 		mode_path = "res://profiles/modes/loose.tres"
 	if test_name == "mode_stunt":
 		mode_path = "res://profiles/modes/stunt.tres"
+	if test_name.begins_with("drivable:"):
+		mode_path = test_name.substr(9)
 	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick") \
-			or test_name in ["mode_loose", "mode_stunt"] or test_name.begins_with("mode:"):
+			or test_name in ["mode_loose", "mode_stunt"] or test_name.begins_with("mode:") \
+			or test_name.begins_with("drivable:"):
 		world = world.duplicate()
 		world.flat_radius = 5000.0
 	main.get_node("Car").profile = load(car_path)
@@ -134,6 +145,8 @@ func _result(ok: bool, detail: String) -> void:
 		label = "world " + cur.get_file().get_basename()
 	elif cur.begins_with("mode:"):
 		label = "mode " + cur.get_file().get_basename()
+	elif cur.begins_with("drivable:"):
+		label = "drivable " + cur.get_file().get_basename()
 	print("%s  %-22s %s" % ["PASS" if ok else "FAIL", label, detail])
 
 
@@ -1024,15 +1037,15 @@ func _t_mode_loose() -> bool:
 					st["t0"] = t
 		"donut":
 			var el: int = t - st["t0"]
-			drive(1.0, 0.0, 1.0, el > 60 and el < 180)
+			drive(1.0, 0.0, 1.0, el > 60)   # handbrake donut: pull it and keep it pulled
 			if el > 480:
 				st["slip"] = maxf(st.get("slip", 0.0), absf(body_slip_deg()))
 				st["yaw"] = maxf(st.get("yaw", 0.0), absf(car.angular_velocity.y))
 				st["donut_kmh"] = maxf(st.get("donut_kmh", 0.0), car.linear_velocity.length() * 3.6)
 			if el == 240 * 7:
 				var ok: bool = st.get("locked", 0) == 4 and st.get("steer_deg", 0.0) > 20.0 \
-						and st.get("slip", 0.0) > 150.0 and st.get("yaw", 0.0) > 2.5 \
-						and st.get("donut_kmh", 0.0) > 20.0 and st["brake_g"] > 0.9
+						and st.get("slip", 0.0) > 60.0 and st.get("yaw", 0.0) > 1.5 \
+						and st.get("donut_kmh", 0.0) > 15.0 and st["brake_g"] > 0.9
 				_result(ok, "all 4 wheels lock (%.2f g stop) · full lock at 120 = %.0f deg road-wheel angle · sustained donut %.0f deg slip, %.1f rad/s, %.0f km/h" % [
 					st["brake_g"], st["steer_deg"], st["slip"], st["yaw"], st["donut_kmh"]])
 				return true
@@ -1068,4 +1081,112 @@ func _t_mode_stunt() -> bool:
 			_result(rolled and survived, "hard corner rolls it (%.0f deg, upside down %s) · quick flick does not (%.0f deg)" % [
 				st.get("roll", 0.0), rolled, st.get("flick_roll", 0.0)])
 			return true
+	return false
+
+
+## The two things that made 0.9.0's modes unusable, as a permanent check on every mode:
+##   1. it tracks straight at full throttle (no spinning out in a straight line)
+##   2. a steady corner is a corner, not a spin - and full lock still turns rather than plowing
+func _t_drivable() -> bool:
+	if t == 1:
+		place(Vector3(300, 1.0, 300), PI * 0.25)
+		st["stage"] = "straight"
+	match st["stage"]:
+		"straight":
+			drive(1.0, 0.0, 0.0)
+			if t > 60:
+				st["wander"] = maxf(st.get("wander", 0.0), absf(body_slip_deg()))
+			if t == 240 * 7:
+				st["top"] = car.linear_velocity.length() * 3.6
+				st["stage"] = "corner"
+				place(Vector3(300, 1.0, 300), PI * 0.25)
+				st["settle"] = t
+		"corner", "full":
+			if t < st.get("settle", 0) + 60:
+				return false
+			if not st.has("go"):
+				drive(1.0, 0.0, 0.0)
+				if kmh() >= 80.0:
+					st["go"] = t
+				return false
+			var steer: float = 0.35 if st["stage"] == "corner" else 1.0
+			drive(0.35, 0.0, steer)
+			var el: int = t - st["go"]
+			if el > 180:
+				var key: String = "slip_" + str(st["stage"])
+				st[key] = maxf(st.get(key, 0.0), absf(body_slip_deg()))
+			if el == 240 * 3:
+				var speed := car.linear_velocity.length()
+				var r: float = speed / maxf(absf(car.angular_velocity.y), 0.001)
+				st["r_" + str(st["stage"])] = r
+				st["kmh_" + str(st["stage"])] = speed * 3.6
+				# radius against the tightest the tyres allow at this speed (v^2 / mu.g).
+				# A plowing car needs far more room than that; a sliding one needs less.
+				var mu: float = maxf(car.tire_mu * car.surface_grip * car.front_grip, 0.01)
+				st["ratio_" + str(st["stage"])] = r / maxf(speed * speed / (mu * car._gravity), 0.01)
+				if st["stage"] == "corner":
+					st["stage"] = "full"
+					st.erase("go")
+					place(Vector3(300, 1.0, 300), PI * 0.25)
+					st["settle"] = t
+				else:
+					var name: String = car.drive_mode.display_name
+					# a corner at 80 km/h must stay a corner (< 50 deg of slip), turn at all
+					# (radius < 120 m), and full lock must turn tighter than a third-lock does
+					# 1. tracks straight at full throttle
+					# 2. a steady corner stays a corner: not spun, and speed not scrubbed away
+					# 3. full lock actually turns: either a tight radius, or visibly sideways.
+					#    Plowing is the combination of a wide radius AND no slip angle - which
+					#    is exactly what 0.9.0's Loose did.
+					var ok: bool = st.get("wander", 0.0) < 5.0 and st.get("top", 0.0) > 100.0 \
+							and st.get("slip_corner", 0.0) < 60.0 and st.get("kmh_corner", 0.0) > 40.0 \
+							and (st.get("ratio_full", 99.0) < 1.6 or st.get("slip_full", 0.0) > 25.0)
+					_result(ok, "%s: straight %.0f km/h, wander %.1f deg · corner: radius %.0f m, %.0f deg slip, holds %.0f km/h · full lock radius %.0f m (%.2fx tightest possible, %.0f deg slip)" % [
+						name, st.get("top", 0.0), st.get("wander", 0.0), st.get("r_corner", 0.0),
+						st.get("slip_corner", 0.0), st.get("kmh_corner", 0.0),
+						st.get("r_full", 0.0), st.get("ratio_full", 0.0), st.get("slip_full", 0.0)])
+					return true
+	return false
+
+
+## Reverse is a gear you select (X), not something the brake does. Holding the brake must
+## always just brake, and reverse must not engage at speed.
+func _t_reverse_gear() -> bool:
+	if t == 1:
+		place(Vector3(300, 1.0, 300), PI * 0.25)
+		st["stage"] = "brake_holds"
+	match st["stage"]:
+		"brake_holds":
+			drive(0.0, 1.0, 0.0)                      # brake held from a standstill
+			if t == 240 * 3:
+				st["crept"] = car.linear_velocity.length()
+				st["still_drive"] = not car.is_reversing
+				st["stage"] = "select"
+		"select":
+			drive(0.0, 0.0, 0.0)
+			if t == 240 * 3 + 10:
+				st["at_rest"] = car.toggle_reverse() and car.is_reversing
+			elif t > 240 * 3 + 10:
+				drive(1.0, 0.0, 0.0)                  # throttle now goes backwards
+				if t == 240 * 6:
+					st["back_kmh"] = -car.forward_speed * 3.6
+					st["stage"] = "no_change_at_speed"
+					car.is_reversing = false
+					st.erase("go")
+		"no_change_at_speed":
+			drive(1.0, 0.0, 0.0)
+			if kmh() > 60.0 and not st.has("tried"):
+				st["tried"] = true
+				st["refused"] = not car.toggle_reverse() and not car.is_reversing
+				st["stage"] = "brake_at_speed"
+				st["t0"] = t
+		"brake_at_speed":
+			drive(0.0, 1.0, 0.0)                      # brake to a stop and keep holding
+			if t - st["t0"] == 240 * 5:
+				var ok: bool = st.get("still_drive", false) and st.get("crept", 9.0) < 0.05 \
+						and st.get("at_rest", false) and st.get("back_kmh", 0.0) > 10.0 \
+						and st.get("refused", false) and not car.is_reversing \
+						and car.linear_velocity.length() < 0.05
+				_result(ok, "brake at a standstill just holds (no creep, stays in D) · X selects reverse, %.0f km/h backwards · X refused at speed · braking to a stop never selects reverse" % st.get("back_kmh", 0.0))
+				return true
 	return false

@@ -23,16 +23,17 @@ const HELP_TEXT := """GAMEPAD                      KEYBOARD
 RT / LT   throttle / brake   W / S  (↑ / ↓)
 Left stick   steer           A / D  (← / →)
 B   handbrake                Space
+X   reverse gear (at a stop) X
 Y   next camera (9 angles)   C     1-9 jump to a camera
 Start   record / stop        R
 LB   take browser            Tab
-X   ghost play / pause       P
+RB   ghost play / pause      P
 View/Back   recover upright  Backspace
                              Esc   back to the start menu
                              Home   reset to spawn
                              O   open takes folder
                              F1   toggle this help
-Hold brake at a stop to reverse."""
+The left trigger is only ever the brake."""
 
 
 func _ready() -> void:
@@ -41,6 +42,7 @@ func _ready() -> void:
 	_player = get_node(player_path) as TakePlayer
 	_browser = get_node(browser_path) as TakeBrowser
 	_browser.message.connect(func(m: String) -> void: _flash(m, 4.0))
+	_car.gear_changed.connect(func(rev: bool) -> void: _flash("Gear: %s" % ("REVERSE" if rev else "DRIVE"), 1.5))
 	var rig := get_node_or_null(^"../ChaseCam") as ChaseCameraRig
 	if rig:
 		rig.camera_changed.connect(func(n: String) -> void: _flash("Camera: %s" % n, 1.5))

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.9.2 — grip feel, and reverse on its own button
+
+- **The modes felt like ice because of the tyre curve, not the grip level.** 0.9.1 moved the
+  peak slip angle from 8 to 12.8 deg to add warning; that cut grip at the small slip angles
+  normal cornering uses by about 30 % (0.61 g vs 0.86 g at 4 deg), so the car slid before it
+  bit. Peak is back at 8 deg - identical to Standard up to the limit - with a high falloff
+  floor instead, so grip holds at 1.12 g at 32 deg of slip where Standard falls to 0.94.
+- Brake boost cut from x2.6 to x1.7: the wheels used to lock at about a third of the pedal.
+  They now lock past ~70 %, so you can threshold-brake and still lock them if you stamp.
+- Low Grip is a wet road (0.90 mu) rather than sheet ice (0.63).
+- **Reverse is its own gear.** Gamepad X / keyboard X selects it at a standstill; holding the
+  brake now only ever brakes. Ghost play/pause moved to RB. New `reverse_gear` test.
+
+Standard is untouched again: 0-100 in 4.35 s, 120-0 in 52.1 m at 1.09 g, 1.26 deg over the bumps.
+
+## 0.9.1 — drive modes made drivable
+
+0.9.0's non-Standard modes fishtailed on any corner and plowed at full lock. Causes and fixes:
+
+- **One grip-falloff floor for all four tyres.** Past peak slip, front and rear grip collapsed
+  together: the front stopped steering (plow) and the rear never recovered (spin). Now set
+  **per axle** (`falloff_floor_front_scale`, `falloff_floor_rear_scale`), with the front kept
+  high so the car still turns when the wheels are wound well past their best angle.
+- **Tyres gave almost no warning.** Added `peak_slip_angle_scale` and `falloff_width_scale`;
+  the loose modes use 1.6-2.0 for a far wider, more progressive limit.
+- **`com_raise` 0.20 in Loose** unloaded the inside wheels to zero in any corner and made the
+  car skate (52 deg of slip at a quarter lock). Now 0 for Loose; only Stunt is top-heavy.
+- **Drift had too much power for its rear grip** and spun out *in a straight line*. Rebalanced.
+- `low_speed_hold` back on everywhere: a slide can be recovered without stopping.
+- New `mode_drivable` test on every mode: straight-line tracking, a steady corner that stays a
+  corner, and full lock that turns rather than plows. 47 Godot tests.
+
+Standard is untouched and re-verified: 0-100 in 4.35 s, 120-0 in 52.1 m at 1.09 g, 1.26 deg
+over the bumps - identical to every earlier release.
+
 ## 0.9.0 — driving modes
 
 - **DriveMode profiles** (`res://profiles/modes`, `user://profiles/modes`), picked in a third
