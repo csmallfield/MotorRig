@@ -1,4 +1,4 @@
-# Driving Rig — v0.8.0
+# Driving Rig — v0.9.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -9,7 +9,8 @@ proxy rig in Maya 2026 with spin re-solve.
 ## Quick start
 
 1. Open `project.godot` in Godot **4.7** (Forward+). First open imports for a few seconds.
-2. F5 opens the **start menu**: pick a car and a world, then DRIVE (gamepad: D-pad, A, Start).
+2. F5 opens the **start menu**: pick a car, a world and a **driving mode**, then DRIVE
+   (gamepad: D-pad, A, Start).
    Xbox pad or keyboard. F1 toggles the help overlay; **Esc** (or Tab > Menu) returns to the menu.
 3. Start (or R) → 3-2-1 → drive → Start again. Take is written after the 8-frame post-roll.
 4. Takes are written as `take_####.json.gz` (format v2 — see `docs/SCHEMA.md`).
@@ -216,6 +217,7 @@ All tuning lives in `.tres` resources, listed by the start menu straight from di
 |---|---|---|
 | cars | `res://profiles/cars/` | `%APPDATA%\Godot\app_userdata\Driving Rig\profiles\cars\` |
 | worlds | `res://profiles/worlds/` | `...\profiles\worlds\` |
+| driving modes | `res://profiles/modes/` | `...\profiles\modes\` |
 
 **Make one:** in the editor's FileSystem dock, duplicate a profile, double-click it, edit it
 in the Inspector (grouped like the car: Dimensions, Suspension, Tires, Drivetrain, Steering),
@@ -249,6 +251,43 @@ Shipped profiles — all pass the stability tests below:
 
 Worlds: **Default Hills**, **Flat Pad** (all 800 m flat), **Rough Country** (seed 777, 22 m
 hills, 4 octaves), **Wet Hills** (Default Hills at 70 % grip).
+
+**Driving mode** — how the car answers *you*, layered on whatever car you picked, so one mode
+suits all four. Everything is a multiplier (×1.0 = leave the car alone), so **Standard changes
+nothing at all**: every number in the table above and in the tests is measured with it.
+
+| mode | what it does |
+|---|---|
+| **Standard** | the reference. Linear pedals, ABS on, steering limited to what the tyres can use. |
+| **Loose** | exponential pedals (^2), no ABS or TC, full steering lock at any speed, brakes ×2.6 that lock all four wheels, looser rear, higher COM. Drift, donut, spin; lifts the inside wheels in a hard corner. |
+| **Drift** | Loose with a rear that lets go early and stays gone, and the power to hold the angle. |
+| **Low Grip** | Loose on a surface at 55 % grip. Pair with Wet Hills for less again. |
+| **Stunt** | Loose, deliberately top-heavy: hold a hard corner at the grip limit and it goes over. |
+
+Knobs worth knowing: `throttle_gamma` / `brake_gamma` / `steer_gamma` (trigger curve — 2.0 gives
+finer control near the bottom and a much harder bite at the top), `steer_grip_margin_deg`
+(−1 keeps the car profile's limiter; 40 = full lock at any speed, ask for more than the tyres
+have and you'll understeer or spin), `abs_mode` / `traction_control_mode`, force multipliers,
+grip multipliers, `com_raise` (+0.20 lifts the inside wheels; +0.26 and up rolls on flat
+ground), `low_speed_hold` and `kerb_trip`.
+
+Measured, sedan on flat ground, Standard vs Loose:
+
+| | Standard | Loose |
+|---|---|---|
+| 100→0 braking | 1.09 g, wheels never lock (slip −0.12) | 1.10 g, **all four lock** (slip −1.0) |
+| 0–30 / 0–100 | 1.43 s / 4.61 s | 1.18 s / 3.61 s |
+| full stick at 120 km/h | 4.1° of road-wheel angle | **27.8°** |
+| donut | 90° of slip, collapses to 19 km/h | **180° sustained, 3.2 rad/s at 34 km/h** |
+| drift held past 15° | — | **3.2 s of 3.5, up to 79 km/h** |
+| hard corner at the limit | 3° of lean | 7°, inside wheels lift (Stunt: rolls right over) |
+
+**Rolling over:** a car with these tyres can't be tipped by grip alone (it would need ~1.3 g and
+makes ~1.0), which is true of real cars too. So Loose lifts wheels but stays upright; roll it by
+tripping over something tall (the ramp's side wall will put it on its roof) or by choosing
+**Stunt**, whose raised COM makes a sustained hard corner go over. `kerb_trip` adds a sideways
+shove when a wheel jams into a steep face — it makes those strikes more violent, but it is not
+what makes rolling possible.
 
 **Other nodes** still tuned in the Inspector: the chase camera (`ChaseCam`: pivot height, arm
 length, pitch, FOV, follow sharpness) and the recorder (countdown, max length, handles,
@@ -291,6 +330,9 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
 | custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |
+| drive_modes | every mode on disk: builds, applies, drives straight; Standard proven neutral |
+| mode_loose | all four wheels lock · 28° of lock at 120 km/h · sustained 180° donut at 34 km/h |
+| mode_stunt | hard corner rolls it upside down; a quick flick does not |
 | car_profiles | 4 cars x settle / full lock / flick — see the profile table |
 | world_profiles | 4 worlds: build, gravity/tick/grip applied, car settles |
 

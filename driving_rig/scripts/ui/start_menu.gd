@@ -9,8 +9,11 @@ const ACCENT := Color(0.94, 0.54, 0.14)
 var _cfg: Node
 var _cars: Array[Dictionary] = []
 var _worlds: Array[Dictionary] = []
+var _modes: Array[Dictionary] = []
 var _car_list: ItemList
 var _world_list: ItemList
+var _mode_list: ItemList
+var _mode_info: Label
 var _car_info: Label
 var _world_info: Label
 var _warn: Label
@@ -27,15 +30,20 @@ func _ready() -> void:
 func rescan() -> void:
 	var keep_car: String = _cfg.car_path
 	var keep_world: String = _cfg.world_path
+	var keep_mode: String = _cfg.mode_path
 	_cars = _cfg.scan_cars()
 	_worlds = _cfg.scan_worlds()
+	_modes = _cfg.scan_modes()
 	_fill(_car_list, _cars, keep_car)
 	_fill(_world_list, _worlds, keep_world)
+	_fill(_mode_list, _modes, keep_mode)
 	_on_changed()
 
 
-func item_count(cars: bool) -> int:
-	return (_car_list if cars else _world_list).item_count
+func item_count(which: Variant) -> int:
+	if which is bool:
+		return (_car_list if which else _world_list).item_count
+	return {"cars": _car_list, "worlds": _world_list, "modes": _mode_list}[which].item_count
 
 
 func drive() -> void:
@@ -76,13 +84,15 @@ func _selected(list: ItemList, entries: Array[Dictionary]) -> Dictionary:
 func _on_changed(_i: int = 0) -> void:
 	var c := _selected(_car_list, _cars)
 	var w := _selected(_world_list, _worlds)
+	var m := _selected(_mode_list, _modes)
 	_car_info.text = _describe(c)
 	_world_info.text = _describe(w)
+	_mode_info.text = _describe(m)
 	var ok: bool = not c.is_empty() and not w.is_empty() and c["profile"] != null and w["profile"] != null \
-			and _cfg.select(c["path"], w["path"])
+			and _cfg.select(c["path"], w["path"], m["path"] if not m.is_empty() and m["profile"] != null else "")
 	_drive.disabled = not ok
 	var warn: PackedStringArray = _cfg.warnings() if ok else PackedStringArray(["Pick a car and a world."])
-	if _cars.is_empty() or _worlds.is_empty():
+	if _cars.is_empty() or _worlds.is_empty() or _modes.is_empty():
 		warn.append("No profiles found - add .tres files to res://profiles or your profiles folder.")
 	_warn.text = "\n".join(warn)
 
@@ -119,12 +129,12 @@ func _build() -> void:
 	margin.add_child(v)
 
 	var title := Label.new()
-	title.text = "DRIVING RIG"
+	title.text = "MOTOR RIG"
 	title.add_theme_font_size_override(&"font_size", 44)
 	title.add_theme_color_override(&"font_color", ACCENT)
 	v.add_child(title)
 	var sub := Label.new()
-	sub.text = "v%s  -  pick a car and a world" % ProjectSettings.get_setting("application/config/version", "dev")
+	sub.text = "v%s  -  pick a car, a world and how it drives" % ProjectSettings.get_setting("application/config/version", "dev")
 	sub.modulate = Color(0.7, 0.72, 0.78)
 	v.add_child(sub)
 
@@ -134,12 +144,17 @@ func _build() -> void:
 	v.add_child(cols)
 	var car_col := _column(cols, "CAR")
 	var world_col := _column(cols, "WORLD")
+	var mode_col := _column(cols, "DRIVING")
 	_car_list = car_col[0]
 	_car_info = car_col[1]
 	_world_list = world_col[0]
 	_world_info = world_col[1]
+	_mode_list = mode_col[0]
+	_mode_info = mode_col[1]
 	_car_list.focus_neighbor_right = _world_list.get_path()
 	_world_list.focus_neighbor_left = _car_list.get_path()
+	_world_list.focus_neighbor_right = _mode_list.get_path()
+	_mode_list.focus_neighbor_left = _world_list.get_path()
 
 	_warn = Label.new()
 	_warn.add_theme_color_override(&"font_color", Color(1.0, 0.7, 0.3))
@@ -164,7 +179,7 @@ func _build() -> void:
 		btns.add_child(b)
 
 	var hint := Label.new()
-	hint.text = ("Profiles are .tres files: project ones in res://profiles/cars|worlds, yours in %s  -  "
+	hint.text = ("Profiles are .tres files: project ones in res://profiles/cars|worlds|modes, yours in %s  -  "
 			+ "duplicate one, edit it in the Inspector, then Rescan.   Gamepad: D-pad, A to pick, Start to drive.") % \
 			ProjectSettings.globalize_path("user://profiles")
 	hint.modulate = Color(0.55, 0.57, 0.62)
@@ -183,7 +198,7 @@ func _column(parent: Control, heading: String) -> Array:
 	h.add_theme_font_size_override(&"font_size", 20)
 	col.add_child(h)
 	var list := ItemList.new()
-	list.custom_minimum_size = Vector2(0, 220)
+	list.custom_minimum_size = Vector2(0, 200)
 	list.add_theme_font_size_override(&"font_size", 18)
 	list.item_selected.connect(_on_changed)
 	list.item_activated.connect(func(_i: int) -> void: drive())

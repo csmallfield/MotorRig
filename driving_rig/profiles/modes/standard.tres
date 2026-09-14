@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="DriveMode" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/drive_mode.gd" id="1_hwlmx"]
+
+[resource]
+script = ExtResource("1_hwlmx")
+description = "The reference behaviour: linear pedals, ABS on, steering limited to what the tyres can actually use. Predictable - hit a mark on the third take."

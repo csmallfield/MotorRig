@@ -70,6 +70,7 @@ Spec schema fields plus:
 | `channel_shapes` | Per-channel shape without the time axis. |
 | `conventions` | Sign conventions (below) — importers should read this, not assume. |
 | `car_params` | Every value of the car profile it was driven with (vectors as [x,y,z]), for re-simulating from `input.*` later. |
+| `drive_mode` | `{name, path, params}` of the driving mode (input curves, assists, multipliers). Since 0.9.0. |
 | `car_profile`, `world_profile` | `{name, path}` of the profiles used (world includes `params`: gravity, tick, grip, terrain). Since 0.6.0. |
 | `body.mass`, `wheel_order`, `rig_version`, `godot_version`, `created` | Provenance. |
 

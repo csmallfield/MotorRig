@@ -13,10 +13,11 @@ extends SceneTree
 const TAKES_DIR: String = "user://test_takes"
 const REF_CAR: String = "res://profiles/cars/sedan_awd.tres"
 const REF_WORLD: String = "res://profiles/worlds/default_hills.tres"
+const REF_MODE: String = "res://profiles/modes/standard.tres"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
-	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles",
-	"cameras", "camera_record", "steering_wheel", "custom_chassis"]
+	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
+	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch"]
 
 var queue: Array[String] = []
@@ -45,7 +46,11 @@ func _initialize() -> void:
 			for e: Dictionary in root.get_node("SimConfig").scan_worlds():
 				if e["profile"]:
 					queue.append("world:%s" % e["path"])
-		elif a in ALL or a.begins_with("car:") or a.begins_with("world:"):
+		elif a == "drive_modes":
+			for e: Dictionary in root.get_node("SimConfig").scan_modes():
+				if e["profile"]:
+					queue.append("mode:%s" % e["path"])
+		elif a in ALL or a.begins_with("car:") or a.begins_with("world:") or a.begins_with("mode:"):
 			queue.append(a)   # e.g. car:res://profiles/cars/suv_awd.tres:corner
 		else:
 			print("unknown test: ", a)
@@ -74,6 +79,8 @@ func _physics_process(_d: float) -> bool:
 		fn = "_t_car_" + cur.rsplit(":", true, 1)[1]
 	elif cur.begins_with("world:"):
 		fn = "_t_world"
+	elif cur.begins_with("mode:"):
+		fn = "_t_mode"
 	if call(fn) or t > 240 * 60:
 		if t > 240 * 60:
 			_result(false, "timeout")
@@ -88,15 +95,24 @@ func _start(test_name: String) -> void:
 	Engine.physics_ticks_per_second = 240
 	main = load("res://scenes/main.tscn").instantiate()
 	var car_path := REF_CAR
+	var mode_path := REF_MODE
 	var world: WorldProfile = load(REF_WORLD)
 	if test_name.begins_with("car:"):
 		car_path = test_name.split(":", true, 1)[1].rsplit(":", true, 1)[0]
 	if test_name.begins_with("world:"):
 		world = load(test_name.substr(6))
-	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick"):
+	if test_name.begins_with("mode:"):
+		mode_path = test_name.substr(5)
+	if test_name == "mode_loose":
+		mode_path = "res://profiles/modes/loose.tres"
+	if test_name == "mode_stunt":
+		mode_path = "res://profiles/modes/stunt.tres"
+	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick") \
+			or test_name in ["mode_loose", "mode_stunt"] or test_name.begins_with("mode:"):
 		world = world.duplicate()
 		world.flat_radius = 5000.0
 	main.get_node("Car").profile = load(car_path)
+	main.get_node("Car").drive_mode = load(mode_path)
 	main.get_node("Terrain").profile = world
 	main.get_node("Recorder").takes_dir = TAKES_DIR
 	root.add_child(main)
@@ -116,6 +132,8 @@ func _result(ok: bool, detail: String) -> void:
 		label = "%s %s" % [cur.rsplit(":", true, 1)[0].get_file().get_basename(), cur.rsplit(":", true, 1)[1]]
 	elif cur.begins_with("world:"):
 		label = "world " + cur.get_file().get_basename()
+	elif cur.begins_with("mode:"):
+		label = "mode " + cur.get_file().get_basename()
 	print("%s  %-22s %s" % ["PASS" if ok else "FAIL", label, detail])
 
 
@@ -677,18 +695,25 @@ func _t_menu() -> bool:
 	var cfg: Node = root.get_node("SimConfig")
 	var keep_car: String = cfg.car_path
 	var keep_world: String = cfg.world_path
+	var keep_mode: String = cfg.mode_path
 	var menu: Control = load("res://scenes/menu.tscn").instantiate()
 	main.add_child(menu)
 	var cars: int = cfg.scan_cars().size()
 	var worlds: int = cfg.scan_worlds().size()
-	var listed: bool = menu.item_count(true) == cars and menu.item_count(false) == worlds and cars >= 4 and worlds >= 4
-	var picked: bool = cfg.select("res://profiles/cars/sports_rwd.tres", "res://profiles/worlds/wet_hills.tres") \
-			and cfg.car_profile.display_name == "Sports RWD" and cfg.world_profile.surface_grip == 0.7
-	var clean: bool = cfg.warnings().is_empty()
+	var modes: int = cfg.scan_modes().size()
+	var listed: bool = menu.item_count("cars") == cars and menu.item_count("worlds") == worlds \
+			and menu.item_count("modes") == modes and cars >= 4 and worlds >= 4 and modes >= 5
+	var picked: bool = cfg.select("res://profiles/cars/sports_rwd.tres", "res://profiles/worlds/wet_hills.tres",
+			"res://profiles/modes/loose.tres") \
+			and cfg.car_profile.display_name == "Sports RWD" and cfg.world_profile.surface_grip == 0.7 \
+			and cfg.drive_mode.display_name == "Loose"
+	var clean: bool = cfg.warnings().size() == 1 and "Loose" in cfg.warnings()[0]   # mode warning only
+	cfg.select("res://profiles/cars/sports_rwd.tres", "res://profiles/worlds/wet_hills.tres", REF_MODE)
+	clean = clean and cfg.warnings().is_empty()
 	var fast: WorldProfile = (cfg.world_profile as WorldProfile).duplicate()
 	fast.tick_hz = 120
 	cfg.world_profile = fast
-	var warned: bool = cfg.warnings().size() == 1
+	var warned: bool = cfg.warnings().size() == 1 and "Hz" in cfg.warnings()[0]
 	var bogus := FileAccess.open("user://profiles/cars/zz_not_a_profile.tres", FileAccess.WRITE)
 	bogus.store_string("[gd_resource type=\"Resource\" format=3]\n[resource]\n")
 	bogus.close()
@@ -698,10 +723,10 @@ func _t_menu() -> bool:
 			flagged = e["profile"] == null and e["error"] != ""
 	DirAccess.remove_absolute("user://profiles/cars/zz_not_a_profile.tres")
 	if keep_car != "" and keep_world != "":
-		cfg.select(keep_car, keep_world)
+		cfg.select(keep_car, keep_world, keep_mode)
 	_result(listed and picked and clean and warned and flagged,
-		"%d cars, %d worlds listed · select ok %s · tick-mismatch warning %s · invalid file flagged %s" % [
-		cars, worlds, picked, warned, flagged])
+		"%d cars, %d worlds, %d modes listed · select ok %s · tick-mismatch warning %s · invalid file flagged %s" % [
+		cars, worlds, modes, picked, warned, flagged])
 	return true
 
 
@@ -932,4 +957,115 @@ func _t_custom_chassis() -> bool:
 		_result(ok, "model in, box out %s · collider still %s · driver-cam layer %s · settles at ride height %s · ghost rebuilds model %s" % [
 			model != null and not has_box, (col.shape as BoxShape3D).size, layers_ok, settled, ghost_model])
 		return true
+	return false
+
+
+# === drive modes ===
+
+## Every drive mode on disk: builds, applies, car drives and stays finite. Standard must be
+## exactly neutral - the reference numbers depend on it.
+func _t_mode() -> bool:
+	if t == 1:
+		place(Vector3(280, 1.0, 280), PI * 0.25)
+	# straight line: loose modes spin out on a steering sweep, which says nothing about whether
+	# the mode itself is sound
+	drive(1.0, 0.0, 0.0)
+	if t == 6 * 240:
+		var m: DriveMode = car.drive_mode
+		var neutral_ok: bool = (m.display_name != "Standard") or m.is_neutral()
+		var ref: CarProfile = load(REF_CAR)
+		var untouched: bool = not m.is_neutral() or (is_equal_approx(car.brake_force, ref.brake_force)
+				and is_equal_approx(car.tire_mu, ref.tire_mu) and car.abs_enabled == ref.abs_enabled
+				and is_equal_approx(car.throttle_gamma, 1.0))
+		var speed := car.linear_velocity.length() * 3.6
+		var sane: bool = car.global_position.is_finite() and car.global_basis.y.y > 0.5 and speed > 30.0
+		_result(neutral_ok and untouched and sane, "%s: %s · drives straight at %.0f km/h, upright %s" % [
+			m.display_name, m.summary().left(80), speed, car.global_basis.y.y > 0.5])
+		return true
+	return false
+
+
+## What Loose is for: brakes that lock all four wheels, full steering lock at speed,
+## a sustained donut, and a drift you can hold - none of which Standard can do.
+func _t_mode_loose() -> bool:
+	if t == 1:
+		place(Vector3(300, 1.0, 300), PI * 0.25)
+		st["stage"] = "brake"
+	match st["stage"]:
+		"brake":
+			if not st.has("go"):
+				drive(1.0, 0.0, 0.0)
+				if kmh() >= 100.0:
+					st["go"] = sec()
+					st["v0"] = car.forward_speed
+			else:
+				drive(0.0, 1.0, 0.0)
+				var locked := 0
+				for i in 4:
+					if car.wheel_slip_long[i] < -0.9:
+						locked += 1
+				st["locked"] = maxi(st.get("locked", 0), locked)
+				if car.forward_speed < 0.3:
+					st["brake_g"] = st["v0"] / (sec() - st["go"]) / 9.81
+					st["stage"] = "steer"
+					st.erase("go")
+		"steer":
+			if not st.has("go"):
+				drive(1.0, 0.0, 0.0)
+				if kmh() >= 120.0:
+					st["go"] = sec()
+			else:
+				drive(0.0, 0.0, 1.0)
+				st["steer_deg"] = maxf(st.get("steer_deg", 0.0), rad_to_deg(absf(car.wheel_steer[0])))
+				if sec() - st["go"] > 0.6:
+					st["stage"] = "donut"
+					st.erase("go")
+					place(Vector3(300, 1.0, 300), PI * 0.25)
+					st["t0"] = t
+		"donut":
+			var el: int = t - st["t0"]
+			drive(1.0, 0.0, 1.0, el > 60 and el < 180)
+			if el > 480:
+				st["slip"] = maxf(st.get("slip", 0.0), absf(body_slip_deg()))
+				st["yaw"] = maxf(st.get("yaw", 0.0), absf(car.angular_velocity.y))
+				st["donut_kmh"] = maxf(st.get("donut_kmh", 0.0), car.linear_velocity.length() * 3.6)
+			if el == 240 * 7:
+				var ok: bool = st.get("locked", 0) == 4 and st.get("steer_deg", 0.0) > 20.0 \
+						and st.get("slip", 0.0) > 150.0 and st.get("yaw", 0.0) > 2.5 \
+						and st.get("donut_kmh", 0.0) > 20.0 and st["brake_g"] > 0.9
+				_result(ok, "all 4 wheels lock (%.2f g stop) · full lock at 120 = %.0f deg road-wheel angle · sustained donut %.0f deg slip, %.1f rad/s, %.0f km/h" % [
+					st["brake_g"], st["steer_deg"], st["slip"], st["yaw"], st["donut_kmh"]])
+				return true
+	return false
+
+
+## Stunt: a hard corner at the grip limit puts it on its roof; a quick flick does not.
+func _t_mode_stunt() -> bool:
+	if t == 1:
+		place(Vector3(300, 1.2, 300), PI * 0.25)
+		st["stage"] = "corner"
+	if not st.has("go"):
+		drive(1.0, 0.0, 0.0)
+		if kmh() >= 90.0:
+			st["go"] = t
+		return false
+	var el: int = t - st["go"]
+	if st["stage"] == "corner":
+		drive(0.5, 0.0, 0.25)
+		st["roll"] = maxf(st.get("roll", 0.0), absf(roll_deg()))
+		st["up"] = minf(st.get("up", 1.0), car.global_basis.y.y)
+		if el == 240 * 5:
+			st["stage"] = "flick"
+			st.erase("go")
+			place(Vector3(300, 1.2, 300), PI * 0.25)
+	else:
+		drive(0.6, 0.0, 0.4 if el < 60 else (-0.4 if el < 120 else 0.0))
+		st["flick_roll"] = maxf(st.get("flick_roll", 0.0), absf(roll_deg()))
+		st["flick_up"] = minf(st.get("flick_up", 1.0), car.global_basis.y.y)
+		if el == 240 * 3:
+			var rolled: bool = st.get("up", 1.0) < 0.0
+			var survived: bool = st.get("flick_up", 1.0) > 0.8
+			_result(rolled and survived, "hard corner rolls it (%.0f deg, upside down %s) · quick flick does not (%.0f deg)" % [
+				st.get("roll", 0.0), rolled, st.get("flick_roll", 0.0)])
+			return true
 	return false

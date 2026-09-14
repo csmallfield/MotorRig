@@ -99,6 +99,18 @@ var steering_wheel_angle: float = 0.0
 var _steering_wheel: Node3D
 var body_color: Color = Color(0.86, 0.42, 0.10)
 
+## Drive mode (see scripts/profiles/drive_mode.gd)
+var throttle_gamma: float = 1.0
+var brake_gamma: float = 1.0
+var steer_gamma: float = 1.0
+var low_speed_hold: bool = true
+var kerb_trip: float = 0.0
+## Pedal values after the mode's response curve - what the physics uses. The raw device
+## values stay in input_* and are what gets recorded.
+var throttle: float = 0.0
+var brake: float = 0.0
+var steer: float = 0.0
+
 ## World physics (from the active WorldProfile)
 var surface_grip: float = 1.0
 var air_density_scale: float = 1.0
@@ -107,6 +119,8 @@ var _gravity: float = 9.81
 
 ## Explicit profile (tests, tools). Otherwise SimConfig's selection, else built-in defaults.
 @export var profile: CarProfile
+## Explicit drive mode; otherwise SimConfig's selection, else a neutral one (no change).
+@export var drive_mode: DriveMode
 
 @export_group("Visuals")
 @export var body_material: Material
@@ -155,10 +169,12 @@ var _just_reset: bool = false
 
 
 var active_profile: CarProfile   ## what this car was actually built from
+var active_mode: DriveMode
 
 
 func _ready() -> void:
 	_apply_profile(_resolve_profile())
+	_apply_mode(_resolve_mode())
 	_apply_world(WorldProfile.active)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = com_offset
@@ -205,6 +221,20 @@ func _apply_profile(p: CarProfile) -> void:
 		set(n, p.get(n))
 
 
+func _resolve_mode() -> DriveMode:
+	if drive_mode:
+		return drive_mode
+	var cfg := get_node_or_null(^"/root/SimConfig")
+	if cfg and cfg.get("drive_mode"):
+		return cfg.get("drive_mode")
+	return DriveMode.new()
+
+
+func _apply_mode(m: DriveMode) -> void:
+	active_mode = m
+	m.apply_to(self)
+
+
 func _apply_world(w: WorldProfile) -> void:
 	if w:
 		surface_grip = w.surface_grip
@@ -212,6 +242,11 @@ func _apply_world(w: WorldProfile) -> void:
 	var space := get_world_3d().space if is_inside_tree() else RID()
 	_gravity = PhysicsServer3D.area_get_param(space, PhysicsServer3D.AREA_PARAM_GRAVITY) \
 			if space.is_valid() else (w.gravity if w else GRAVITY)
+
+
+## Trigger response: out = in^gamma (1.0 = linear).
+static func _curve(x: float, gamma: float) -> float:
+	return x if is_equal_approx(gamma, 1.0) else pow(clampf(x, 0.0, 1.0), gamma)
 
 
 func _tinted(mat: Material, c: Color) -> Material:
@@ -414,6 +449,9 @@ func _physics_process(delta: float) -> void:
 
 	if use_player_input:
 		_poll_player_input()
+	throttle = _curve(input_throttle, throttle_gamma)
+	brake = _curve(input_brake, brake_gamma)
+	steer = signf(input_steer) * _curve(absf(input_steer), steer_gamma)
 
 	var xf := global_transform
 	var basis := xf.basis
@@ -453,12 +491,13 @@ func _physics_process(delta: float) -> void:
 
 	# --- Drive / brake demand
 	var drive_total := _drive_force()
-	var brake_in := input_brake
-	var throttle_in := input_throttle
+	var brake_in := brake
+	var throttle_in := throttle
 	if is_reversing:
-		brake_in = input_throttle
-		throttle_in = input_brake
+		brake_in = throttle
+		throttle_in = brake
 	var holding := throttle_in < 0.02 and absf(forward_speed) < 0.6
+
 
 	# --- Tire pass
 	for i in WHEEL_COUNT:
@@ -478,6 +517,13 @@ func _physics_process(delta: float) -> void:
 		apply_force(up * maxf(_susp_force[i], 0.0), r_origin)
 
 		var n := wheel_contact_n[i]
+		# Kerb strike: a wheel jammed against a sloped or vertical face is pushed along that
+		# face, not only up its own axis. Zero on flat ground (the normal is vertical), large
+		# against a kerb - which is what trips a sliding car into a roll.
+		if kerb_trip > 0.0:
+			var n_h := Vector3(n.x, 0.0, n.z)
+			if n_h.length_squared() > 1e-6:
+				apply_force(n_h * maxf(_susp_force[i], 0.0) * kerb_trip, r_origin)
 		var steer_fwd := fwd_body.rotated(up, wheel_steer[i])
 		var fwd := steer_fwd - n * steer_fwd.dot(n)
 		if fwd.length_squared() < 1e-6:
@@ -499,7 +545,7 @@ func _physics_process(delta: float) -> void:
 		# Lateral: slip-angle grip curve, blended into a velocity-cancelling hold at crawl.
 		var alpha := atan2(vs, maxf(abs_vl, low_speed_slip_ref))
 		var f_lat := -signf(alpha) * _grip_curve(absf(alpha)) * fmax
-		var crawl := 1.0 - clampf(v.length() / 2.0, 0.0, 1.0)
+		var crawl := (1.0 - clampf(v.length() / 2.0, 0.0, 1.0)) if low_speed_hold else 0.0
 		if crawl > 0.0:
 			f_lat = lerpf(f_lat, -vs * _corner_mass / delta * 0.35, crawl)
 
@@ -514,7 +560,7 @@ func _physics_process(delta: float) -> void:
 		var f_long := f_drive
 		if f_brake_cap > 0.0:
 			f_long -= clampf(vl * _corner_mass / delta * 0.5, -f_brake_cap, f_brake_cap)
-		if holding and f_brake_cap <= 0.0:
+		if holding and f_brake_cap <= 0.0 and low_speed_hold:
 			f_long = -vl * _corner_mass / delta * 0.35
 		elif abs_vl > 0.1:
 			f_long -= signf(vl) * rolling_resistance * load
@@ -640,28 +686,28 @@ func _drive_share(i: int) -> float:
 func _drive_force() -> float:
 	# Gear: holding brake at a standstill engages reverse; throttle at a standstill leaves it.
 	if not is_reversing:
-		if input_brake > 0.1 and input_throttle < 0.05 and forward_speed < 0.5:
+		if brake > 0.1 and throttle < 0.05 and forward_speed < 0.5:
 			_reverse_timer += get_physics_process_delta_time()
 			if _reverse_timer > 0.25:
 				is_reversing = true
 				_reverse_timer = 0.0
 		else:
 			_reverse_timer = 0.0
-	elif input_throttle > 0.1 and input_brake < 0.05 and forward_speed > -0.5:
+	elif throttle > 0.1 and brake < 0.05 and forward_speed > -0.5:
 		is_reversing = false
 		_reverse_timer = 0.0
 
 	var speed := absf(forward_speed)
 	if is_reversing:
 		var fade_r := clampf(1.0 - pow(speed / (reverse_top_speed_kmh / 3.6), 6.0), 0.0, 1.0)
-		return -input_brake * reverse_force * fade_r
+		return -brake * reverse_force * fade_r
 	var cap := minf(max_drive_force, engine_power_kw * 1000.0 / maxf(speed, 1.0))
 	var fade := clampf(1.0 - pow(speed / (top_speed_kmh / 3.6), 6.0), 0.0, 1.0)
-	return input_throttle * cap * fade
+	return throttle * cap * fade
 
 
 func _update_steering(delta: float) -> void:
-	var target := input_steer
+	var target := steer
 	var returning := absf(target) < absf(_steer_smoothed) or signf(target) != signf(_steer_smoothed)
 	_steer_smoothed = move_toward(_steer_smoothed, target,
 			(steer_return_rate if returning else steer_rate) * delta)
@@ -775,6 +821,8 @@ func build_take_meta() -> Dictionary:
 		},
 		"car_params": active_profile.to_dict(),
 		"car_profile": {"name": active_profile.display_name, "path": active_profile.resource_path},
+		"drive_mode": {"name": active_mode.display_name, "path": active_mode.resource_path,
+			"params": active_mode.to_dict()},
 		"world_profile": _world_meta(),
 	}
 

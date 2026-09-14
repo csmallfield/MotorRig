@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="DriveMode" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/drive_mode.gd" id="1_k520d"]
+
+[resource]
+script = ExtResource("1_k520d")
+display_name = "Drift"
+description = "Loose, further: a rear that lets go early and stays gone, plenty of power to hold the angle, and enough front grip to catch it. For sustained sideways work."
+throttle_gamma = 1.7
+brake_gamma = 2.0
+steer_gamma = 1.4
+steer_rate_scale = 2.4
+steer_return_scale = 2.0
+steer_grip_margin_deg = 40.0
+abs_mode = 2
+traction_control_mode = 2
+low_speed_hold = false
+brake_force_scale = 2.2
+engine_scale = 1.7
+drive_force_scale = 1.9
+handbrake_force_scale = 1.8
+front_grip_scale = 1.1
+rear_grip_scale = 0.6
+falloff_floor_scale = 0.7
+handbrake_rear_grip_scale = 0.45
+kerb_trip = 1.0

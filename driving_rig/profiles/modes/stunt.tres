@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="DriveMode" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/drive_mode.gd" id="1_xl1o0"]
+
+[resource]
+script = ExtResource("1_xl1o0")
+display_name = "Stunt"
+description = "Loose, but deliberately top-heavy: hold a hard corner at the grip limit and it will go over. For rolls, barrel rolls off the ramp and wrecks. Not for takes you want to look sane."
+throttle_gamma = 2.0
+brake_gamma = 2.0
+steer_gamma = 1.6
+steer_rate_scale = 2.0
+steer_return_scale = 1.6
+steer_grip_margin_deg = 40.0
+abs_mode = 2
+traction_control_mode = 2
+low_speed_hold = false
+brake_force_scale = 2.6
+engine_scale = 1.6
+drive_force_scale = 1.7
+handbrake_force_scale = 1.6
+rear_grip_scale = 0.78
+falloff_floor_scale = 0.78
+handbrake_rear_grip_scale = 0.55
+com_raise = 0.32
+kerb_trip = 1.5

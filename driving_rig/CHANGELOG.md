@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 — driving modes
+
+- **DriveMode profiles** (`res://profiles/modes`, `user://profiles/modes`), picked in a third
+  column of the start menu. Layered on any car as multipliers, so **Standard is exactly
+  neutral** - every existing handling number is unchanged and re-verified.
+- Shipped: **Standard**, **Loose**, **Drift**, **Low Grip**, **Stunt**.
+- New in the car: exponential trigger/stick response (`out = in^gamma`) applied to the
+  physics while the take still records the raw device values; `low_speed_hold` toggle;
+  `kerb_trip` sideways force when a wheel jams into a steep face (off by default, so Standard
+  is bit-identical). Wheel lock-up now reachable by raising brake force with ABS off.
+- Takes record `meta.drive_mode` (name, path, all values); the browser shows it.
+- Tests: `drive_modes` (every mode on disk), `mode_loose`, `mode_stunt`. 44 Godot tests.
+
 ## 0.8.0 — your own car model in Maya
 
 - **Create Bind Car:** static copy of a take rig at rest (`<ns>_bind:`), level at the origin on

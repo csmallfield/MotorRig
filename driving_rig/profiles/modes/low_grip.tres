@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="DriveMode" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/drive_mode.gd" id="1_ld0b5"]
+
+[resource]
+script = ExtResource("1_ld0b5")
+display_name = "Low Grip"
+description = "Everything Loose does, on a surface that barely holds: slow, sliding, weight-transfer driving. Pair with the Wet Hills world for even less."
+throttle_gamma = 2.0
+brake_gamma = 2.0
+steer_gamma = 1.6
+steer_rate_scale = 2.0
+steer_grip_margin_deg = 40.0
+abs_mode = 2
+traction_control_mode = 2
+low_speed_hold = false
+brake_force_scale = 2.6
+tire_mu_scale = 0.55
+rear_grip_scale = 0.9
+falloff_floor_scale = 0.8
+kerb_trip = 1.0

@@ -9,16 +9,19 @@ const MENU_SCENE: String = "res://scenes/menu.tscn"
 const SIM_SCENE: String = "res://scenes/main.tscn"
 const CAR_DIRS: PackedStringArray = ["res://profiles/cars", "user://profiles/cars"]
 const WORLD_DIRS: PackedStringArray = ["res://profiles/worlds", "user://profiles/worlds"]
+const MODE_DIRS: PackedStringArray = ["res://profiles/modes", "user://profiles/modes"]
 const SETTINGS_PATH: String = "user://settings.cfg"
 
 var car_profile: CarProfile
 var world_profile: WorldProfile
+var drive_mode: DriveMode
 var car_path: String = ""
 var world_path: String = ""
+var mode_path: String = ""
 
 
 func _ready() -> void:
-	for d in [CAR_DIRS[1], WORLD_DIRS[1]]:
+	for d in [CAR_DIRS[1], WORLD_DIRS[1], MODE_DIRS[1]]:
 		DirAccess.make_dir_recursive_absolute(d)
 	_restore_last()
 
@@ -32,19 +35,30 @@ func scan_worlds() -> Array[Dictionary]:
 	return _scan(WORLD_DIRS, "WorldProfile")
 
 
-func select(car: String, world: String) -> bool:
+func scan_modes() -> Array[Dictionary]:
+	return _scan(MODE_DIRS, "DriveMode")
+
+
+func select(car: String, world: String, mode: String = "") -> bool:
 	var c := _load_as(car, "CarProfile")
 	var w := _load_as(world, "WorldProfile")
 	if c == null or w == null:
 		return false
+	var m := _load_as(mode, "DriveMode") if mode != "" else drive_mode
+	if m == null:
+		return false
 	car_profile = c
 	world_profile = w
+	drive_mode = m
 	car_path = car
 	world_path = world
+	if mode != "":
+		mode_path = mode
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS_PATH)
 	cfg.set_value("selection", "car", car)
 	cfg.set_value("selection", "world", world)
+	cfg.set_value("selection", "mode", mode_path)
 	cfg.save(SETTINGS_PATH)
 	return true
 
@@ -57,6 +71,8 @@ func warnings() -> PackedStringArray:
 			car_profile.tuned_at_hz, world_profile.tick_hz])
 	if world_profile and world_profile.source == WorldProfile.Source.SCENE and world_profile.imported_scene == null:
 		out.append("World source is SCENE but no imported_scene is set.")
+	if drive_mode and not drive_mode.is_neutral():
+		out.append("%s changes the car's handling - the car profile's tested numbers no longer apply." % drive_mode.display_name)
 	return out
 
 
@@ -79,14 +95,19 @@ func _restore_last() -> void:
 	cfg.load(SETTINGS_PATH)
 	var cars := scan_cars()
 	var worlds := scan_worlds()
+	var modes := scan_modes()
 	var c: String = cfg.get_value("selection", "car", "")
 	var w: String = cfg.get_value("selection", "world", "")
+	var m: String = cfg.get_value("selection", "mode", "")
 	if not _has(cars, c):
 		c = _first_valid(cars)
 	if not _has(worlds, w):
 		w = _first_valid(worlds)
+	if not _has(modes, m):
+		m = _default_mode(modes)
+	drive_mode = DriveMode.new()   # neutral: changes nothing
 	if c != "" and w != "":
-		select(c, w)
+		select(c, w, m)
 	else:   # nothing usable on disk: built-in defaults
 		car_profile = CarProfile.new()
 		world_profile = WorldProfile.new()
@@ -127,6 +148,14 @@ func _has(list: Array[Dictionary], path: String) -> bool:
 		if e["path"] == path and e["profile"] != null:
 			return true
 	return false
+
+
+## First run: Standard, not whatever sorts first alphabetically.
+func _default_mode(list: Array[Dictionary]) -> String:
+	for e in list:
+		if e["profile"] != null and String(e["path"]).get_file() == "standard.tres":
+			return e["path"]
+	return _first_valid(list)
 
 
 func _first_valid(list: Array[Dictionary]) -> String:
