@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0 — watch mode
+
+- **RB / V: watch a replay full screen.** The browser panel hides, the car parks, and the take
+  plays with the whole screen free. Y/C cycles the nine live cameras aimed at the ghost *and*
+  the nine angles the take recorded (`cams.*`), so you can watch it back as shot or from any
+  other angle. The HUD shows the take time and camera name. RB or Tab returns to the browser.
+- Camera cycling now goes backwards too (D-pad left / Z).
+- Ghost play/pause moved to L3 (P on the keyboard) to free RB.
+- New `watch_mode` test: panel hidden, car parked, ghost still running, 9 + 9 cameras, each
+  recorded camera matching the file to 0.0000 m, and Tab returning to the browser.
+
 ## 0.9.2 — grip feel, and reverse on its own button
 
 - **The modes felt like ice because of the tyre curve, not the grip level.** 0.9.1 moved the

@@ -1,4 +1,4 @@
-# Driving Rig — v0.9.2
+# Driving Rig — v0.10.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -22,10 +22,11 @@ proxy rig in Maya 2026 with spin re-solve.
 | Left stick | A / D (← / →) | steer |
 | B | Space | handbrake |
 | X | X | reverse gear (only at a standstill) — the left trigger is only ever the brake |
-| Y | C | next camera (9 angles) — number keys 1-9 jump to one |
+| Y | C | next camera (9 angles) — number keys 1-9 jump to one; D-pad left / Z goes back |
 | Start | R | record / stop (cancels during countdown) |
 | LB | Tab | take browser |
-| RB | P | ghost play / pause |
+| RB | V | watch the replay full screen (no panel) |
+| L3 | P | ghost play / pause |
 | View/Back | Backspace | recover upright in place |
 | — | Home | reset to spawn |
 
@@ -81,8 +82,12 @@ Tab / LB opens it. The car parks, recording is blocked, and the chase cam follow
   written file on a background thread and reports the result. Choose `.json` in the dialog
   for an uncompressed copy.
 - **Delete** moves the take and its thumbnail to the recycle bin.
-- **Close the browser with a ghost playing** and it keeps looping while you drive — for
+- **Close the browser with a ghost playing** (LB) and it keeps looping while you drive — for
   re-shooting a take against the previous one.
+- **Watch (RB / V)** hides the panel and plays the take full screen with the car parked. Y/C
+  cycles **eighteen** cameras: the nine live ones aimed at the ghost, then the nine the take
+  itself recorded — so you can watch it back exactly as you shot it, or from anywhere else.
+  RB or Tab brings the browser back.
 - **Export Scene...** writes the drivable scene (terrain, props, marks — or an imported set) as
   OBJ files into `<folder>/scene_<ground name>/`: one OBJ per object, `scene.mtl`, and
   `scene.json`. World space, **centimetres, Y-up** — the same space as the take rigs, so it

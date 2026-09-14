@@ -18,7 +18,7 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
 	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
 	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt",
-	"mode_drivable", "reverse_gear"]
+	"mode_drivable", "reverse_gear", "watch_mode"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -1189,4 +1189,60 @@ func _t_reverse_gear() -> bool:
 						and car.linear_velocity.length() < 0.05
 				_result(ok, "brake at a standstill just holds (no creep, stays in D) · X selects reverse, %.0f km/h backwards · X refused at speed · braking to a stop never selects reverse" % st.get("back_kmh", 0.0))
 				return true
+	return false
+
+
+## Watch mode: RB hides the browser, parks the car and lets you watch the replay from any
+## angle - the live cameras aimed at the ghost, plus every angle the take itself recorded.
+func _t_watch_mode() -> bool:
+	var rig: ChaseCameraRig = main.get_node("ChaseCam")
+	if t == 1:
+		if not FileAccess.file_exists(last_take):
+			_result(false, "needs record_replay first")
+			return true
+		browser.open()
+		browser.select_file(last_take.get_file())
+		browser.watch()                      # not loaded yet: should load, then watch
+		return false
+	if not player.active:
+		return false
+	if not st.has("t0"):
+		st["t0"] = t
+		st["pos0"] = player.pos
+		st["names"] = Array(player.recorded_cam_names)
+		st["live_labels"] = []
+		st["take_labels"] = []
+		return false
+	if t == st["t0"] + 240:
+		st["advanced"] = player.pos - st["pos0"]
+		# cycle every camera watch mode offers and record what each one was
+		var list := rig.watch_list()
+		for i in list.size():
+			rig.cycle(1)
+			var label := rig.camera_label(rig.active_camera)
+			if label.begins_with("take: "):
+				st["take_labels"].append(label.substr(6))
+			else:
+				st["live_labels"].append(label)
+		# a take camera must sit where the take says it was
+		rig.select_index(0)
+		var k: int = st["names"].find("heli")
+		var cam: Camera3D = player.recorded_cams[k]
+		var i0 := int(player.pos) * TakeFormat.STRIDE + TakeFormat.O_CAMS + k * TakeFormat.C_STRIDE
+		st["cam_err"] = cam.global_position.distance_to(Vector3(player.data[i0], player.data[i0 + 1], player.data[i0 + 2]))
+		st["panel_hidden"] = not browser._panel.visible and not browser.is_open
+		st["hud"] = main.get_node("HUD")._status.text.contains("WATCHING")
+		st["parked"] = not car.use_player_input and rec.blocked
+		browser.stop_watching()
+		return false
+	if t == st["t0"] + 260:
+		var back_in_browser: bool = browser._panel.visible and browser.is_open and not browser.is_watching
+		var ok: bool = st.get("panel_hidden", false) and st.get("hud", false) and st.get("parked", false) \
+				and absf(st.get("advanced", 0.0) - 240.0) < 2.0 \
+				and st["take_labels"].size() == 9 and st["live_labels"].size() >= 9 \
+				and st.get("cam_err", 9.9) < 0.01 and back_in_browser and rig.replay_cams.is_empty()
+		_result(ok, "panel hidden + HUD watch readout, car parked, ghost ran %.0f samples in 1 s · %d live cameras + %d from the take (%s...) · take camera matches the file to %.4f m · Tab returns to the browser" % [
+			st.get("advanced", 0.0), st["live_labels"].size(), st["take_labels"].size(),
+			", ".join(PackedStringArray(st["take_labels"]).slice(0, 3)), st.get("cam_err", 9.9)])
+		return true
 	return false

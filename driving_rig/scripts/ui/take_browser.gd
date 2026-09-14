@@ -15,6 +15,9 @@ signal scene_exported(result: Dictionary)
 const COLS: PackedStringArray = ["★", "Take", "Dur", "Dist", "Peak", "Lat g", "Air"]
 
 var is_open: bool = false
+## Watching a replay full screen: panel hidden, car parked, every camera - live and recorded -
+## available. RB / V toggles it; closing it returns to the browser.
+var is_watching: bool = false
 var _car: DrivingCar
 var _rec: TakeRecorder
 var _player: TakePlayer
@@ -47,6 +50,7 @@ var _confirm: ConfirmationDialog
 var _file_dialog: FileDialog
 var _scene_dialog: FileDialog
 var _scene_thread: Thread   # dedicated thread, same reason as take loading
+var _watch_when_loaded: bool = false
 
 func _ready() -> void:
 	layer = 5
@@ -72,15 +76,57 @@ func _input(event: InputEvent) -> void:
 	# _input, not _unhandled_input: Tab is also ui_focus_next and the GUI would eat it.
 	if event.is_action_pressed(&"browser_toggle"):
 		get_viewport().set_input_as_handled()
-		if is_open:
+		if is_watching:
+			stop_watching()
+		elif is_open:
 			close()
 		else:
 			open()
+	elif event.is_action_pressed(&"watch_toggle"):
+		get_viewport().set_input_as_handled()
+		if is_watching:
+			stop_watching()
+		else:
+			watch()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"replay_play_pause") and _player.active:
 		_player.toggle_play()
+
+
+## Hide the panel and watch the replay full screen. Cameras keep working (Y/C, 1-9), so you
+## can cycle the live angles on the ghost and every angle the take itself recorded.
+func watch() -> void:
+	if not _player.active:
+		if _selected == "":
+			message.emit("Pick a take first")
+			return
+		replay_selected()          # loads, then _on_player_loaded calls watch() again
+		_watch_when_loaded = true
+		return
+	is_watching = true
+	is_open = false          # the panel is gone: the HUD shows its own watch readout instead
+	_panel.visible = false
+	_car.use_player_input = false
+	_rec.blocked = true
+	_attach_view()
+	_rig.replay_cams = _player.recorded_cams.slice(0, _player.recorded_cam_names.size())
+	_rig.replay_cam_names = _player.recorded_cam_names
+	if not _player.playing:
+		_player.toggle_play()
+	message.emit("Watching %s - RB/V or Tab to come back, Y/C for cameras, L3/P play-pause" % _display_name(_player.path.get_file()))
+
+
+func stop_watching() -> void:
+	if not is_watching:
+		return
+	is_watching = false
+	_rig.replay_cams = []
+	_rig.replay_cam_names = PackedStringArray()
+	if not _rig.cycle_list().has(_rig.active_camera):
+		_rig.select_index(0)
+	open()
 
 
 func open() -> void:
@@ -102,6 +148,9 @@ func open() -> void:
 
 
 func close() -> void:
+	is_watching = false
+	_rig.replay_cams = []
+	_rig.replay_cam_names = PackedStringArray()
 	is_open = false
 	_panel.visible = false
 	_car.use_player_input = true
@@ -256,7 +305,10 @@ func _on_player_loaded(p: String) -> void:
 	_thumbs.erase(p.get_file())   # may have just been generated
 	_slider.max_value = maxf(_player.n - 1, 1)
 	_set_status("Replaying %s — %d samples" % [_display_name(p.get_file()), _player.n])
-	if is_open:
+	if _watch_when_loaded:
+		_watch_when_loaded = false
+		watch()
+	elif is_open:
 		_attach_view()
 		refresh()
 
@@ -522,6 +574,7 @@ func _build_ui() -> void:
 	_btn_play = _button(btns, "▶  Replay", _on_play_pressed)
 	_btn_stop = _button(btns, "■  Stop", func() -> void: _player.stop())
 	_btn_fav = _button(btns, "☆ Favourite", _on_fav)
+	_button(btns, "Watch  (RB)", watch)
 	_btn_export = _button(btns, "Export…", _on_export)
 	_btn_delete = _button(btns, "Delete", _on_delete)
 
@@ -562,7 +615,7 @@ func _build_ui() -> void:
 	_speed.item_selected.connect(func(i: int) -> void: _player.speed = [0.25, 0.5, 1.0, 2.0][i])
 	opts.add_child(_speed)
 	var hint := Label.new()
-	hint.text = "Y/C: cycle cameras (1-9 jump, incl. recorded)   X/P: play/pause"
+	hint.text = "RB/V: watch full screen   Y/C: cameras   L3/P: play/pause"
 	hint.modulate = Color(0.65, 0.65, 0.7)
 	hint.add_theme_font_size_override(&"font_size", 13)
 	opts.add_child(hint)

@@ -40,6 +40,17 @@ var replay_cam: Camera3D = null:
 		replay_cam = v
 		if v == null and active_camera != null and not cameras.has(active_camera):
 			_set_active(_chase_cam)
+## The take's own recorded cameras, added to the cycle while watching a replay.
+var replay_cams: Array[Camera3D] = []
+var replay_cam_names: PackedStringArray = PackedStringArray()
+
+
+## While watching a replay: every live camera aimed at the ghost, then every angle the take
+## itself recorded. Otherwise the live set.
+func watch_list() -> Array[Camera3D]:
+	var out := cycle_list()
+	out.append_array(replay_cams)
+	return out
 
 var _car: DrivingCar
 var _follow: Node3D
@@ -87,6 +98,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"camera_toggle"):
 		cycle(1)
+	elif event.is_action_pressed(&"camera_prev"):
+		cycle(-1)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var k := (event as InputEventKey).physical_keycode
 		if k >= KEY_1 and k <= KEY_9:
@@ -106,7 +119,7 @@ func cycle_list() -> Array[Camera3D]:
 
 
 func cycle(step: int) -> void:
-	var list := cycle_list()
+	var list := watch_list() if not replay_cams.is_empty() else cycle_list()
 	var i := list.find(active_camera)
 	_set_active(list[(i + step + list.size()) % list.size()])
 
@@ -126,7 +139,10 @@ func active_index() -> int:
 
 func camera_label(cam: Camera3D) -> String:
 	if cam == replay_cam:
-		return "recorded"
+		return "as recorded"
+	var k := replay_cams.find(cam)
+	if k >= 0:
+		return "take: %s" % (replay_cam_names[k] if k < replay_cam_names.size() else "?")
 	var i := cameras.find(cam)
 	return TakeFormat.CAMERA_NAMES[i] if i >= 0 else "?"
 

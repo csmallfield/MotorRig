@@ -30,7 +30,11 @@ var in_index: int = 0
 var out_index: int = 0
 
 var ghost: GhostCar
+## The camera that was on screen when the take was shot.
 var recorded_cam: Camera3D
+## One camera per angle the take recorded (rig 0.7+). Empty for older takes.
+var recorded_cams: Array[Camera3D] = []
+var recorded_cam_names: PackedStringArray = PackedStringArray()
 ## Dedicated thread, not WorkerThreadPool: Jolt runs its physics jobs on the pool, and a
 ## long parse there starves the solver.
 var _thread: Thread
@@ -45,6 +49,13 @@ func _ready() -> void:
 	recorded_cam = Camera3D.new()
 	recorded_cam.name = "RecordedCam"
 	add_child(recorded_cam)
+	for i in TakeFormat.CAMERA_NAMES.size():
+		var c := Camera3D.new()
+		c.name = "RecordedCam_" + TakeFormat.CAMERA_NAMES[i]
+		c.near = 0.05
+		c.far = 4000.0
+		add_child(c)
+		recorded_cams.append(c)
 
 
 func load_take(take_path: String) -> void:
@@ -76,6 +87,9 @@ func _on_loaded(r: Dictionary, take_path: String) -> void:
 	take_hz = float(meta.get("tick_hz", 240))
 	in_index = int(meta.get("in_index", 0))
 	out_index = int(meta.get("out_index", n - 1))
+	# a take only has per-camera tracks if it was recorded with them (rig 0.7+)
+	recorded_cam_names = PackedStringArray(meta.get("camera_names", [])) if bool(meta.get("all_cameras", false)) \
+			else PackedStringArray()
 	ghost.build(meta, ghost_body_material, wheel_material, accent_material)
 	ghost.visible = true
 	active = true
@@ -108,6 +122,8 @@ func seek(sample: float) -> void:
 	_apply()
 	ghost.reset_physics_interpolation()
 	recorded_cam.reset_physics_interpolation()
+	for c in recorded_cams:
+		c.reset_physics_interpolation()
 
 
 ## Seconds relative to the take's IN point (handles are negative / past OUT).
@@ -144,6 +160,14 @@ func _apply() -> void:
 	cq = cq.slerp(Quaternion(data[c1 + 3], data[c1 + 4], data[c1 + 5], data[c1 + 6]).normalized(), f)
 	recorded_cam.global_transform = Transform3D(Basis(cq), cp)
 	recorded_cam.fov = lerpf(data[c0 + 7], data[c1 + 7], f)
+	for k in recorded_cam_names.size():
+		var k0 := o0 + TakeFormat.O_CAMS + k * TakeFormat.C_STRIDE
+		var k1 := o1 + TakeFormat.O_CAMS + k * TakeFormat.C_STRIDE
+		var p := Vector3(data[k0], data[k0 + 1], data[k0 + 2]).lerp(Vector3(data[k1], data[k1 + 1], data[k1 + 2]), f)
+		var q := Quaternion(data[k0 + 3], data[k0 + 4], data[k0 + 5], data[k0 + 6]).normalized()
+		q = q.slerp(Quaternion(data[k1 + 3], data[k1 + 4], data[k1 + 5], data[k1 + 6]).normalized(), f)
+		recorded_cams[k].global_transform = Transform3D(Basis(q), p)
+		recorded_cams[k].fov = lerpf(data[k0 + 7], data[k1 + 7], f)
 
 
 ## Takes recorded before thumbnails existed get one the first time they're replayed.

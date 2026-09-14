@@ -27,7 +27,8 @@ X   reverse gear (at a stop) X
 Y   next camera (9 angles)   C     1-9 jump to a camera
 Start   record / stop        R
 LB   take browser            Tab
-RB   ghost play / pause      P
+RB   watch replay full screen V
+L3   ghost play / pause      P
 View/Back   recover upright  Backspace
                              Esc   back to the start menu
                              Home   reset to spawn
@@ -97,13 +98,17 @@ func _process(delta: float) -> void:
 	var kmh := absf(_car.forward_speed) * 3.6
 	_speed.text = "%s %3d km/h" % ["R" if _car.is_reversing else "D", roundi(kmh)]
 
-	_speed.visible = not _browser.is_open
-	_help.visible = _help_wanted and not _browser.is_open
+	_speed.visible = not (_browser.is_open or _browser.is_watching)
+	_info.visible = not _browser.is_watching
+	_help.visible = _help_wanted and not (_browser.is_open or _browser.is_watching)
 	match _rec.state:
 		TakeRecorder.State.IDLE:
 			_status.text = ""
 			if _player.active and not _browser.is_open:
-				_status.text = "%s GHOST  %+.2f s" % ["▶" if _player.playing else "❚❚", _player.current_time()]
+				var rig := get_node_or_null(^"../ChaseCam") as ChaseCameraRig
+				var cam := ("   ·   %s" % rig.camera_label(rig.active_camera)) if rig and _browser.is_watching else ""
+				_status.text = "%s %s  %+.2f s%s" % ["▶" if _player.playing else "❚❚",
+					"WATCHING" if _browser.is_watching else "GHOST", _player.current_time(), cam]
 		TakeRecorder.State.COUNTDOWN:
 			_status.text = str(_rec.countdown_remaining())
 		TakeRecorder.State.RECORDING:
