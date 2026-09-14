@@ -13,6 +13,11 @@ extends Node3D
 ##   8 trackside  broadcast camera planted ahead of the car; pans and zooms as it passes,
 ##                then leapfrogs ahead again
 ##   9 orbit      slow orbit around the car
+##   10 crane      starts low ahead, cranes up and back over the car as it passes, then resets
+##   11 drone      loose FPV chase: swings wide on the outside of turns, drifts in height
+##   12 lowchase   knee-high behind the car, long lens - speed and dust
+##   13 pan        locked-off tripod that only pans and tilts; replants when the car gets far
+##   14 rearwheel  rigid mount at the rear wheel, looking back along the car
 ##
 ## C / gamepad Y cycles; number keys 1-9 jump. Everything follows `_follow` - the live car, or
 ## the replay ghost (where "driver" is replaced by the take's recorded camera).
@@ -243,6 +248,50 @@ func _update_cinematic(dt: float, snap_now: bool) -> void:
 	_look("trackside", plant, p + Vector3.UP * 0.4, 8.0, snap_now or replant,
 			clampf(rad_to_deg(2.0 * atan(4.5 / maxf(dist, 1.0))), 6.0, 55.0), dt)
 
+	# crane: plant ahead and low, rise and swing back over the car as it goes past
+	var cr: Dictionary = _state.get("crane", {})
+	var cplant: Vector3 = cr.get("plant", Vector3.INF)
+	var crel := p - cplant
+	var crane_replant := snap_now or cplant == Vector3.INF or crel.length() > 90.0 or crel.dot(fwd) > 18.0
+	if crane_replant:
+		cplant = _clear_ground(p + fwd * clampf(maxf(vel.length(), 8.0) * 2.6, 26.0, 60.0)
+				+ fwd.cross(Vector3.UP).normalized() * 5.0, 0.8)
+		cr = {"plant": cplant, "t": 0.0}
+		_state["crane"] = cr
+	var ct: float = minf(float(cr.get("t", 0.0)) + dt * 0.3, 1.0)
+	cr["t"] = ct
+	var rise := ct * ct * (3.0 - 2.0 * ct)        # ease up and back
+	var crane_pos := cplant + Vector3.UP * (1.2 + 13.0 * rise) - fwd * (18.0 * rise)
+	_place("crane", _clear_ground(crane_pos, 1.0), p + Vector3.UP * 0.4, 6.0, 5.0,
+			lerpf(50.0, 42.0, rise), dt, crane_replant)   # snap on replant: easing loses the car
+
+	# drone: swings to the outside of the turn and breathes in height - handheld FPV feel
+	var turn := clampf(-_follow_angular_y() * 1.4, -1.0, 1.0)
+	var side_dir := fwd.cross(Vector3.UP).normalized()
+	var bob: float = float(_state.get("orbit_ang", 0.0)) * 0.6
+	var drone_target := p - fwd * 7.5 + side_dir * (5.0 * turn) + Vector3.UP * (3.4 + 0.8 * sin(bob))
+	_place("drone", _clear_ground(drone_target, 1.2), p + fwd * 3.0, 3.0, 4.0, 55.0, dt, snap_now)
+
+	# lowchase: knee-high, close, long lens
+	var lf := _smooth_dir("low_dir", fwd, 2.0, dt, snap_now)
+	_place("lowchase", _clear_ground(p - lf * 7.0 + Vector3.UP * 0.45, 0.35), p + Vector3.UP * 0.5,
+			8.0, 7.0, 34.0, dt, snap_now)
+
+	# pan: a locked-off tripod. It never moves - it only pans and tilts - until the car gets
+	# far enough away that there is nothing to see, then it replants.
+	var pn: Dictionary = _state.get("pan", {})
+	var pplant: Vector3 = pn.get("plant", Vector3.INF)
+	if snap_now or pplant == Vector3.INF or pplant.distance_to(p) > 110.0:
+		pplant = _clear_ground(p - fwd * 14.0 + fwd.cross(Vector3.UP).normalized() * 16.0 + Vector3.UP * 3.0, 3.0)
+		_state["pan"] = {"plant": pplant}
+	_look("pan", pplant, p + Vector3.UP * 0.4, 5.0, snap_now,
+			clampf(rad_to_deg(2.0 * atan(5.0 / maxf(pplant.distance_to(p), 1.0))), 8.0, 60.0), dt)
+
+	# rearwheel: rigid at the back wheel, looking forward along the flank
+	var rhp := _hardpoint(3)
+	_rigid("rearwheel", f, Vector3(rhp.x + 0.42, rhp.y + 0.05, rhp.z + 0.5),
+			Vector3(rhp.x + 0.1, rhp.y - 0.15, rhp.z - 2.0), 68.0)
+
 	# orbit: slow circle in world space
 	var ang: float = float(_state.get("orbit_ang", 0.0)) + 0.25 * dt
 	_state["orbit_ang"] = ang
@@ -294,6 +343,16 @@ func _clear_ground(pos: Vector3, min_height: float) -> Vector3:
 	if hit:
 		pos.y = maxf(pos.y, (hit["position"] as Vector3).y + min_height)
 	return pos
+
+
+## Yaw rate of whatever we're following (the ghost is not a rigid body).
+func _follow_angular_y() -> float:
+	if _follow is RigidBody3D:
+		return (_follow as RigidBody3D).angular_velocity.y
+	var yaw := _target_yaw()
+	var prev: float = _state.get("yaw_prev", yaw)
+	_state["yaw_prev"] = yaw
+	return wrapf(yaw - prev, -PI, PI) * float(Engine.physics_ticks_per_second)
 
 
 func _ghost_velocity(p: Vector3, dt: float) -> Vector3:

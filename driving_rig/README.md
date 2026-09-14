@@ -1,4 +1,4 @@
-# Driving Rig — v0.10.0
+# Driving Rig — v0.11.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -34,7 +34,7 @@ Recover/reset are locked while a take is running so every take is physically con
 
 ## Cameras
 
-Nine cameras, all running every tick (so switching never jumps, and all of them are recorded):
+Fourteen cameras, all running every tick (so switching never jumps, and all are recorded):
 
 | key | camera | |
 |---|---|---|
@@ -47,6 +47,11 @@ Nine cameras, all running every tick (so switching never jumps, and all of them 
 | 7 | bumper | rigid mount on the nose, looking ahead |
 | 8 | trackside | broadcast camera planted ahead; pans and zooms as the car passes, then leapfrogs |
 | 9 | orbit | slow orbit |
+| 10 | crane | plants low ahead, cranes up and back over the car as it passes, then resets |
+| 11 | drone | loose FPV chase that swings wide on the outside of turns and breathes in height |
+| 12 | lowchase | knee-high behind the car on a long lens — speed and dust |
+| 13 | pan | locked-off tripod that only pans and tilts; replants when the car gets far away |
+| 14 | rearwheel | rigid mount at the rear wheel, looking forward along the flank |
 
 Tracking cameras never go below the terrain. In a replay they all follow the ghost — watch
 any take from any angle; the driver slot becomes the take's recorded camera.
@@ -85,7 +90,7 @@ Tab / LB opens it. The car parks, recording is blocked, and the chase cam follow
 - **Close the browser with a ghost playing** (LB) and it keeps looping while you drive — for
   re-shooting a take against the previous one.
 - **Watch (RB / V)** hides the panel and plays the take full screen with the car parked. Y/C
-  cycles **eighteen** cameras: the nine live ones aimed at the ghost, then the nine the take
+  cycles **28** cameras: the fourteen live ones aimed at the ghost, then the fourteen the take
   itself recorded — so you can watch it back exactly as you shot it, or from anywhere else.
   RB or Tab brings the browser back.
 - **Export Scene...** writes the drivable scene (terrain, props, marks — or an imported set) as
@@ -137,16 +142,24 @@ group the first time it's created.
    suffix are ignored; nesting is fine (a steering wheel inside the chassis group, meshes
    named `chassis_geo`…). **Create Model Groups** makes the empty named groups, already placed.
    Scale and move the model's top group freely.
-3. Select the model's top group and the rig, **Attach Model**. Each group is parented under
-   its animated node — chassis → `chassis`, wheels → `wheel_XX_spin` (so they steer, compress
-   and spin about the rig's wheel centre, whatever your pivots), steering wheel →
-   `steering_wheel` — with the bind-to-model offset in its `offsetParentMatrix`. Your groups'
-   own values, pivots and any animation are untouched; nothing is baked. The proxy geometry
-   hides (`root.proxyVisibility`) and so does the bind car.
+3. Select the model's top group and the rig, **Attach Model**. **The model stays in its own
+   hierarchy** — nothing is moved into the rig. Each group gets a `parentConstraint` from its
+   animated node (chassis → `chassis`, wheels → `wheel_XX_spin` so they steer, compress and
+   spin about the rig's wheel centre whatever your pivots, steering wheel → `steering_wheel`),
+   with the offset you built against the bind car baked into the constraint. The model's top
+   group moves under `DrivingRig_world` so it picks up world scale with everything else.
+   The proxy geometry hides (`root.proxyVisibility`) and so does the bind car.
 
 **Detach Model** puts every group back exactly where you placed it (re-fit, re-attach).
 Deleting a rig detaches its model first — it never deletes your car. One model per rig at a
 time: duplicate the model for another take.
+
+**Skid curves** — *Driving Rig ▸ Create Skid Curves* turns the stretches where the tyres were
+sliding into NURBS curves under `<ns>:skids`, in the rig's space. Every take already records the
+world contact point, grounded flag and slip per wheel per tick, so this needs no re-export.
+Each curve carries `drvWheel`, `drvStartFrame`, `drvEndFrame`, `drvPeakSlip`, `drvLength` and a
+**keyed `drvIntensity`** (0 → slip amount → 0) you can plug straight into smoke density or an
+emitter's rate. Lower the threshold (default 0.35) to catch gentler slides.
 
 **Cameras in Maya:** `take_cam` switches like the take did; the dialog's *Import every recorded
 camera* adds `cameras/cam_chase … cam_orbit`, and the root gets an enum `activeCamera` keyed
@@ -349,7 +362,8 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | scene_export | 7 OBJs, ground 160,801 verts / 320k tris; corner vertex on the height function to 0.0000 cm |
 | browser | list, replay, camera follow, input lock and restore |
 | menu | lists every profile on disk, selects, warns on tick mismatch, flags invalid files |
-| cameras | 9 cameras x 2,400 ticks in the hills: car in frame 100 %, rigid mounts fixed, never under ground, cycle + 1-9 |
+| cameras | 14 cameras x 2,400 ticks in the hills: car in frame ≥ 97 %, rigid mounts fixed, never under ground, cycle + 1-9 |
+| layout | the sample layout matches the camera list (a mismatch silently corrupts every take) |
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
 | custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |

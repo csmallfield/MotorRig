@@ -18,11 +18,15 @@ const W_STRIDE: int = 12    # compression, steer, spin, grounded, cp3, cn3, slip
 ## Every camera, every tick (v2 optional channels, since 0.7.0). Order is the contract:
 ## the camera rig, the recorder, the file and the Maya importer all use it.
 const CAMERA_NAMES: PackedStringArray = ["chase", "driver", "heli", "front", "side", "wheel",
-	"bumper", "trackside", "orbit"]
+	"bumper", "trackside", "orbit", "crane", "drone", "lowchase", "pan", "rearwheel"]
 const O_CAMS: int = O_WHEELS + W_STRIDE * 4   # 73
 const C_STRIDE: int = 8                        # p3, q4, fov
-const O_ACTIVE: int = O_CAMS + C_STRIDE * 9    # index into CAMERA_NAMES (-1 = none)
-const STRIDE: int = O_ACTIVE + 1               # 146
+## Derived from CAMERA_NAMES: adding a camera must not silently overlap the next field.
+## MUST equal O_CAMS + C_STRIDE * CAMERA_NAMES.size(). It can't be written that way - other
+## scripts can't resolve a const that calls a method - so the layout test asserts it instead.
+## Get this wrong when adding a camera and the extra cameras overwrite the next field.
+const O_ACTIVE: int = O_CAMS + C_STRIDE * 14   # index into CAMERA_NAMES (-1 = none)
+const STRIDE: int = O_ACTIVE + 1               # 186
 
 const SAMPLES_OPEN: String = '"samples":['
 const FORMAT_NAME: String = "driving_rig_take"

@@ -558,11 +558,12 @@ class MayaImport(unittest.TestCase):
         return worst
 
     def test_attached_model_follows_the_rig(self):
-        """Every part = its placement against the bind car, carried by the animated rig:
+        """Constrained, not reparented. Every part = its placement against the bind car,
+        carried by the animated rig:
         chassis motion, wheel steer + suspension + spin, steering wheel - at 1.0 and 0.1 world
         scale, with the model's top group moved/scaled/rotated (as you would to fit a model)
         and one wheel group rotated off-axis."""
-        from driving_rig import bind
+        from driving_rig import bind, mayautil
         c = self.cmds
         for ws in (1.0, 0.1):
             c.file(new=True, force=True)
@@ -574,8 +575,18 @@ class MayaImport(unittest.TestCase):
             c.setAttr(model + ".rotateY", 20.0)
             c.setAttr(parts["wheel_RR"] + ".rotateY", 30.0)
             before = {p: c.getAttr(n + ".worldMatrix[0]") for p, n in parts.items()}
+            parents_before = {p: c.ls(c.listRelatives(n, parent=True, fullPath=True)[0], uuid=True)[0]
+                              for p, n in parts.items()}   # by identity: paths shift when the model moves
             done = bind.attach_model(model, root)
             self.assertEqual(sorted(done), sorted(["chassis", "steering_wheel"] + ["wheel_%s" % w for w in take_io.WHEELS]))
+            # the model stays in its own hierarchy: constrained, never moved into the rig
+            rig_ns = self._ns(root)
+            for part, n in done.items():
+                now = c.ls(c.listRelatives(n, parent=True, fullPath=True)[0], uuid=True)[0]
+                self.assertEqual(now, parents_before[part], part)
+                self.assertNotIn(rig_ns + ":", n)
+                self.assertTrue(c.objExists("%s:%s_parentConstraint" % (rig_ns, part)), part)
+            self.assertEqual(c.listRelatives(model, parent=True)[0], mayautil.WORLD)
             self.assertLess(self._expect_follow(root, broot, parts, before, done, (993, 1010, 1025, 1032)), 1e-3, ws)
             self.assertFalse(c.getAttr(root + ".proxyVisibility"))
             self.assertFalse(c.getAttr(broot + ".visibility"))
@@ -620,6 +631,7 @@ class MayaImport(unittest.TestCase):
             bind.attach_model(model, root)                                     # already attached
         back = bind.detach_model(root)
         self.assertEqual(len(back), len(parts))
+        self.assertEqual(c.ls(type="parentConstraint"), [])          # constraints cleaned up
         for p, n in bind.find_parts(model).items():
             self.assertLess(max(abs(a - b) for a, b in zip(c.getAttr(n + ".worldMatrix[0]", time=1020), before[p])), 1e-6)
             self.assertFalse(c.attributeQuery("drvAttachedTo", node=n, exists=True))
@@ -665,6 +677,48 @@ class MayaImport(unittest.TestCase):
         root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
         c.deleteAttr(root + ".drvMeta")
         self.assertTrue(c.objExists(bind.create_bind_car(root)))
+
+    # --- skid curves ---------------------------------------------------------
+
+    def test_skid_curves(self):
+        from driving_rig import skid
+        c = self.cmds
+        take = take_io.load(CAMS)
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False, world_scale=1.0)
+        grp = skid.create_skid_curves(root, threshold=0.35, verbose=False)
+        curves = c.listRelatives(grp, children=True) or []
+        runs = skid.find_skids(take, threshold=0.35)
+        self.assertEqual(len(curves), len(runs))
+        self.assertGreater(len(curves), 0)
+        for crv, run in zip(sorted(curves), sorted(runs, key=lambda r: (r["start"], r["wheel"]))):
+            self.assertEqual(c.getAttr(crv + ".drvWheel"), run["wheel"])
+            # frames line up with the samples the slide covers (240 Hz -> 24 fps)
+            self.assertAlmostEqual(c.getAttr(crv + ".drvStartFrame"),
+                                   1001 + (run["start"] - take.in_index) / 10.0, places=3)   # 240 Hz -> 24 fps
+            self.assertAlmostEqual(c.getAttr(crv + ".drvEndFrame"),
+                                   1001 + (run["end"] - take.in_index) / 10.0, places=3)
+            self.assertGreater(c.getAttr(crv + ".drvLength"), 0.0)
+            # intensity is 0 before and after, and non-zero while it slides
+            f0 = c.getAttr(crv + ".drvStartFrame")
+            f1 = c.getAttr(crv + ".drvEndFrame")
+            self.assertAlmostEqual(c.getAttr(crv + ".drvIntensity", time=f0 - 1), 0.0, places=4)
+            self.assertAlmostEqual(c.getAttr(crv + ".drvIntensity", time=f1 + 1), 0.0, places=4)
+            self.assertGreater(c.getAttr(crv + ".drvIntensity", time=(f0 + f1) / 2.0), 0.1)
+        # curves sit on the ground where the take says the contact points were
+        self.assertEqual(c.listRelatives(grp, parent=True)[0], "DrivingRig_world")
+        # rebuilding replaces rather than duplicates
+        skid.create_skid_curves(root, threshold=0.35, verbose=False)
+        self.assertEqual(len(c.ls("*:skid_*", type="transform")), len(curves))
+
+    def test_skid_threshold_and_empty(self):
+        from driving_rig import skid
+        take = take_io.load(CAMS)
+        self.assertGreater(len(skid.find_skids(take, threshold=0.15)), len(skid.find_skids(take, threshold=0.35)))
+        self.assertEqual(skid.find_skids(take, threshold=99.0), [])
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
+        grp = skid.create_skid_curves(root, threshold=99.0, verbose=False)
+        self.assertEqual(self.cmds.listRelatives(grp, children=True) or [], [])
+        self.assertIn("Nothing slid", self.cmds.getAttr(grp + ".drvLastCheck"))
 
     # --- housekeeping ------------------------------------------------------
 

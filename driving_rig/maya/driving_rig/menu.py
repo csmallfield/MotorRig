@@ -151,6 +151,16 @@ def _toggle_proxy(*_):
     _run(go)
 
 
+def _skid_curves(*_):
+    from . import skid
+
+    def go():
+        grp = skid.create_skid_curves()
+        cmds.select(grp)
+        cmds.confirmDialog(title="Driving Rig", button=["OK"], message=cmds.getAttr(grp + ".drvLastCheck"))
+    _run(go)
+
+
 def _select_root(*_):
     from . import importer
     root = importer.find_rig_root()
@@ -191,6 +201,8 @@ def create_menu():
                   annotation="Rebuild wheel spin from the car's travel in the scene - after retimes/offsets")
     cmds.menuItem(label="Check Spin (selected rig)", command=_check,
                   annotation="Effective wheel radius vs the take - catches radius / scale / contact errors")
+    cmds.menuItem(label="Create Skid Curves (selected rig)", command=_skid_curves,
+                  annotation="Curves where the tyres were sliding, with keyed intensity for FX")
     cmds.menuItem(label="World Scale...", command=_world_scale,
                   annotation="Scale every Driving Rig import at once (DrivingRig_world.worldScale)")
     cmds.menuItem(label="Car Model", subMenu=True, tearOff=True)

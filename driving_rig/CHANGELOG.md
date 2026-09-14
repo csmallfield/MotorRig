@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 — constrained models, skid curves, five more cameras
+
+- **Maya: attaching a car model now uses parentConstraints.** The model stays in its own
+  hierarchy instead of being moved into the rig; only its top group is placed under
+  `DrivingRig_world` so it still picks up world scale. Detach deletes the constraints and puts
+  everything back exactly where you placed it.
+- **Maya: Create Skid Curves.** NURBS curves for every stretch where a tyre was sliding, built
+  from data the take already carries (contact point, grounded, slip). Each has the wheel, start
+  and end frame, peak slip, length, and a keyed `drvIntensity` for smoke or dust.
+- **Five more cameras** (14 total): crane, drone, lowchase, pan, rearwheel. All recorded into
+  takes and available in watch mode, so a replay now offers 28 angles.
+- **Fix:** adding cameras without moving `O_ACTIVE` made the extra ones overwrite the next
+  field and corrupted every take written. New `layout` test asserts the two agree.
+- `.gitignore` now covers `__pycache__/` and `*.pyc` - Maya rewrites those on every import.
+
 ## 0.10.0 — watch mode
 
 - **RB / V: watch a replay full screen.** The browser panel hides, the car parks, and the take

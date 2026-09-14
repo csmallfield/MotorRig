@@ -10,10 +10,11 @@
     4. attach_model(model, rig)   - every group follows its part of the animated rig.
        detach_model(rig)          - puts everything back exactly as it was.
 
-How attaching works: each group is parented under the animated node and the bind-to-model
-offset goes into its offsetParentMatrix. The group's own translate/rotate/scale, pivots and
-any animation are untouched, nothing is baked, and wheels spin about the rig's wheel centre
-wherever your pivots are: line the geometry up with the bind car and that's all.
+How attaching works: the model stays in its own hierarchy - nothing is moved into the rig.
+Each named group gets a **parentConstraint** from the matching animated node, with the offset
+you built against the bind car baked into the constraint. The model's top group is placed
+under DrivingRig_world so it picks up world scale with everything else. Wheels spin about the
+rig's wheel centre whatever your pivots are: line the geometry up with the bind car, that's all.
 """
 from __future__ import annotations
 
@@ -160,14 +161,14 @@ def _world(node):
     return cmds.getAttr(node + ".worldMatrix[0]")
 
 
-def _parent_world(node):
-    p = cmds.listRelatives(node, parent=True, fullPath=True)
-    return (_world(p[0]), p[0]) if p else (list(mu.M4_IDENTITY), "")
+def _world_matrix_now(node):
+    return cmds.xform(node, query=True, worldSpace=True, matrix=True)
 
 
-def attach_model(model, root=None, hide_proxy=True, hide_bind=True):
-    """Parent each named group of `model` under its animated rig node, keeping its placement
-    relative to the bind car. Returns {part: node}."""
+def attach_model(model, root=None, hide_proxy=True, hide_bind=True, under_world=True):
+    """Constrain each named group of `model` to its animated rig node, keeping the placement
+    you built against the bind car. The model keeps its own place in the outliner.
+    Returns {part: node}."""
     root = find_rig_root(root)
     if not root:
         raise BindError("Select the model group and a Driving Rig.")
@@ -180,8 +181,9 @@ def attach_model(model, root=None, hide_proxy=True, hide_bind=True):
         raise BindError("A model is already attached to this rig - detach it first.")
     bns = namespace_of(bind)
     parts = find_parts(model)
-    # Pass 1 - measure everything in the untouched bind state. (Reparenting part by part would
-    # measure a steering wheel inside an already-attached chassis group from a moving parent.)
+
+    # Pass 1 - measure every part against the *untouched* bind car first. (Doing it one part at
+    # a time would measure a steering wheel inside an already-moved chassis group.)
     plan = []
     for part, node in PARTS:
         if part not in parts:
@@ -192,22 +194,29 @@ def attach_model(model, root=None, hide_proxy=True, hide_bind=True):
                 raise BindError("Rig has no %s" % node)
             continue                                        # steering wheel on an older take
         n = parts[part]
-        wpp, parent_path = _parent_world(n)
-        opm_old = cmds.getAttr(n + ".offsetParentMatrix")
-        # world_new = L * OPM_new * W_anim  ==  (L * OPM_old * W_parent) * inv(W_bind) * W_anim
-        opm_new = mu.m4_mul(mu.m4_mul(opm_old, wpp), mu.m4_inverse_affine(_world(bind_node)))
-        parent_id = cmds.ls(parent_path, uuid=True)[0] if parent_path else ""
-        plan.append((part, cmds.ls(n, uuid=True)[0], target, opm_old, opm_new, parent_id))
-    # Pass 2 - reparent (by UUID: paths change as parents move)
+        # where this part sits relative to the bind car: world_part = offset * world_bind
+        offset = mu.m4_mul(_world_matrix_now(n), mu.m4_inverse_affine(_world_matrix_now(bind_node)))
+        plan.append({"part": part, "uid": cmds.ls(n, uuid=True)[0], "target": target, "offset": offset,
+                     "local": cmds.xform(n, query=True, matrix=True)})
+
+    # Pass 2 - move the model's top group under the world group so it picks up world scale,
+    # then snap each part onto the animated rig and constrain it there.
+    if under_world:
+        top = cmds.ls(model, long=True)[0]
+        if not cmds.listRelatives(top, parent=True):
+            top = put_in_world(top)
     done = {}
-    for part, uid, target, opm_old, opm_new, parent_id in plan:
-        n = cmds.ls(uid, long=True)[0]
-        add_attr(n, "drvOrigParent", parent_id, "string")
-        add_attr(n, "drvOrigOffset", json.dumps(opm_old), "string")
+    for item in plan:
+        n = cmds.ls(item["uid"], long=True)[0]
+        add_attr(n, "drvOrigLocal", json.dumps(item["local"]), "string")
         add_attr(n, "drvAttachedTo", ns, "string")
-        n = cmds.parent(n, target, relative=True)[0]
-        cmds.setAttr(n + ".offsetParentMatrix", *opm_new, type="matrix")
-        done[part] = cmds.ls(n, long=True)[0]
+        # put it where the bind offset says it should be on the animated car right now, so the
+        # constraint's own maintainOffset captures exactly that relationship
+        cmds.xform(n, worldSpace=True, matrix=mu.m4_mul(item["offset"], _world_matrix_now(item["target"])))
+        con = cmds.parentConstraint(item["target"], n, maintainOffset=True)[0]
+        con = cmds.rename(con, "%s:%s_parentConstraint" % (ns, item["part"]))
+        add_attr(n, "drvConstraint", cmds.ls(con, uuid=True)[0], "string")
+        done[item["part"]] = cmds.ls(n, long=True)[0]
     if hide_proxy and cmds.attributeQuery("proxyVisibility", node=root, exists=True):
         cmds.setAttr(root + ".proxyVisibility", False)
     if hide_bind:
@@ -225,25 +234,22 @@ def attached_parts(root):
 
 
 def detach_model(root=None):
-    """Undo attach_model: every part back under its original parent with its original offset,
-    so it sits exactly where it was placed against the bind car. Returns the parts."""
+    """Undo attach_model: constraints deleted and every part back exactly where you placed it
+    against the bind car. Returns the parts."""
     root = find_rig_root(root)
     if not root:
         raise BindError("Select a Driving Rig first.")
     back = []
     for uid in [cmds.ls(n, uuid=True)[0] for n in attached_parts(root)]:
         n = cmds.ls(uid, long=True)[0]
-        parent_id = cmds.getAttr(n + ".drvOrigParent")
-        opm = json.loads(cmds.getAttr(n + ".drvOrigOffset"))
-        parent = (cmds.ls(parent_id, long=True) or [None])[0] if parent_id else None
-        if parent:
-            n = cmds.parent(n, parent, relative=True)[0]
-        else:
-            n = cmds.parent(n, world=True, relative=True)[0]
-        cmds.setAttr(n + ".offsetParentMatrix", *opm, type="matrix")
-        for a in ("drvOrigParent", "drvOrigOffset", "drvAttachedTo"):
-            cmds.deleteAttr(n + "." + a)
-        back.append(n)
+        con = cmds.ls(cmds.getAttr(n + ".drvConstraint"), long=True) or []
+        if con:
+            cmds.delete(con)
+        cmds.xform(n, matrix=json.loads(cmds.getAttr(n + ".drvOrigLocal")))
+        for a in ("drvOrigLocal", "drvAttachedTo", "drvConstraint"):
+            if cmds.attributeQuery(a, node=n, exists=True):
+                cmds.deleteAttr(n + "." + a)
+        back.append(cmds.ls(n, long=True)[0])
     if cmds.attributeQuery("proxyVisibility", node=root, exists=True):
         cmds.setAttr(root + ".proxyVisibility", True)
     bind = find_bind_car(root)

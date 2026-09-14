@@ -1,3 +1,7 @@
 .godot/
 /android/
 *.tmp
+
+# Python bytecode (Maya writes these into maya/ every time it imports the package)
+__pycache__/
+*.py[cod]

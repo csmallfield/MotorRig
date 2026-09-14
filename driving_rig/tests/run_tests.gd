@@ -18,7 +18,7 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
 	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
 	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt",
-	"mode_drivable", "reverse_gear", "watch_mode"]
+	"mode_drivable", "reverse_gear", "watch_mode", "layout"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -80,6 +80,11 @@ func _physics_process(_d: float) -> bool:
 		_start(cur)
 		return false
 	t += 1
+	# Writing or loading a take happens on a worker thread. Headless --fixed-fps spins the sim
+	# flat out, so yield a little wall clock while one is in flight or the test can time out
+	# waiting for a file that is still being written.
+	if rec and (rec.state == TakeRecorder.State.SAVING or (player and player.loading)):
+		OS.delay_msec(10)
 	var fn := "_t_" + cur
 	if cur.begins_with("car:"):
 		fn = "_t_car_" + cur.rsplit(":", true, 1)[1]
@@ -400,6 +405,7 @@ func _t_record_replay() -> bool:
 	if st.has("saved") and not st.has("loading"):
 		st["loading"] = true
 		player.loaded.connect(func(_p: String) -> void: st["loaded"] = true)
+		player.load_failed.connect(func(m: String) -> void: _result(false, "load failed: " + m))
 		player.load_take(st["saved"])
 	if st.has("loaded"):
 		player.playing = false
@@ -785,16 +791,18 @@ func _t_cameras() -> bool:
 		var direct := rig.camera_label(rig.active_camera) == "heli"
 		var worst := 2.0
 		var worst_n := ""
-		for n: String in ["chase", "heli", "front", "side", "trackside", "orbit"]:
+		for n: String in ["chase", "heli", "front", "side", "trackside", "orbit", "crane", "drone", "lowchase", "pan"]:
 			var frac: float = float(st["seen"].get(n, 0)) / st["frames"]
 			if frac < worst:
 				worst = frac
 				worst_n = n
 		var heli_h := rig.cameras[2].global_position.y - car.global_position.y
 		var ok: bool = worst > 0.97 and st["rigid_err"] < 1e-4 and st["under"] == 0 and st["nonfinite"] == 0 \
-				and visited.size() == 9 and wraps and direct and heli_h > 8.0 and st["changed"].size() >= 10
-		_result(ok, "%d ticks x 9 cams · car in frame >= %.1f%% (worst %s) · rigid drift %.6f m · below ground %d · heli +%.0f m · cycle %d/9 wraps %s · 1-9 jump %s" % [
-			st["frames"], worst * 100.0, worst_n, st["rigid_err"], st["under"], heli_h, visited.size(), wraps, direct])
+				and visited.size() == TakeFormat.CAMERA_NAMES.size() and wraps and direct \
+				and heli_h > 8.0 and st["changed"].size() >= TakeFormat.CAMERA_NAMES.size()
+		_result(ok, "%d ticks x %d cams · car in frame >= %.1f%% (worst %s) · rigid mounts drift %.6f m · below ground %d · heli +%.0f m · cycle %d/%d wraps %s · 1-9 jump %s" % [
+			st["frames"], TakeFormat.CAMERA_NAMES.size(), worst * 100.0, worst_n, st["rigid_err"],
+			st["under"], heli_h, visited.size(), TakeFormat.CAMERA_NAMES.size(), wraps, direct])
 		return true
 	return false
 
@@ -821,12 +829,12 @@ func _check_cameras() -> void:
 		if not (x.origin.is_finite() and x.basis.x.is_finite()):
 			st["nonfinite"] += 1
 			continue
-		if n in ["chase", "heli", "front", "side", "trackside", "orbit"]:
+		if n in ["chase", "heli", "front", "side", "trackside", "orbit", "crane", "drone", "lowchase", "pan"]:
 			if cam.is_position_in_frustum(car.global_position):
 				st["seen"][n] = st["seen"].get(n, 0) + 1
 			if x.origin.y < _ground_y(x.origin) + 0.3:
 				st["under"] += 1
-		if n in ["wheel", "bumper", "driver"]:
+		if n in ["wheel", "bumper", "driver", "rearwheel"]:
 			var local := inv * x
 			if not st["rigid0"].has(n):
 				st["rigid0"][n] = local
@@ -1239,10 +1247,27 @@ func _t_watch_mode() -> bool:
 		var back_in_browser: bool = browser._panel.visible and browser.is_open and not browser.is_watching
 		var ok: bool = st.get("panel_hidden", false) and st.get("hud", false) and st.get("parked", false) \
 				and absf(st.get("advanced", 0.0) - 240.0) < 2.0 \
-				and st["take_labels"].size() == 9 and st["live_labels"].size() >= 9 \
+				and st["take_labels"].size() == TakeFormat.CAMERA_NAMES.size() \
+				and st["live_labels"].size() >= TakeFormat.CAMERA_NAMES.size() \
 				and st.get("cam_err", 9.9) < 0.01 and back_in_browser and rig.replay_cams.is_empty()
 		_result(ok, "panel hidden + HUD watch readout, car parked, ghost ran %.0f samples in 1 s · %d live cameras + %d from the take (%s...) · take camera matches the file to %.4f m · Tab returns to the browser" % [
 			st.get("advanced", 0.0), st["live_labels"].size(), st["take_labels"].size(),
 			", ".join(PackedStringArray(st["take_labels"]).slice(0, 3)), st.get("cam_err", 9.9)])
 		return true
 	return false
+
+
+## The sample layout must match the camera list. (Adding cameras without moving O_ACTIVE let
+## the extra ones overwrite the next field and corrupted every take written.)
+func _t_layout() -> bool:
+	var want: int = TakeFormat.O_CAMS + TakeFormat.C_STRIDE * TakeFormat.CAMERA_NAMES.size()
+	var named := {}
+	for n in TakeFormat.CAMERA_NAMES:
+		named[n] = true
+	var rig: ChaseCameraRig = main.get_node("ChaseCam")
+	var ok: bool = TakeFormat.O_ACTIVE == want and TakeFormat.STRIDE == want + 1 \
+			and named.size() == TakeFormat.CAMERA_NAMES.size() \
+			and rig.cameras.size() == TakeFormat.CAMERA_NAMES.size()
+	_result(ok, "%d cameras, all named uniquely · O_ACTIVE %d (want %d) · STRIDE %d · rig builds %d" % [
+		TakeFormat.CAMERA_NAMES.size(), TakeFormat.O_ACTIVE, want, TakeFormat.STRIDE, rig.cameras.size()])
+	return true
