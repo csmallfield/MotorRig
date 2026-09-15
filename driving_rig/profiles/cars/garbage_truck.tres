@@ -1,0 +1,41 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_urh1u"]
+
+[resource]
+script = ExtResource("1_urh1u")
+display_name = "Garbage Truck"
+description = "16 t of front-engine refuse truck: short wheelbase for its size, very tall and nose-heavy. Big brakes, no speed, and it will flatten a hydrant. Corner it hard and it goes over - its centre of mass is above what the tyres can hold (SSF 0.89 vs 0.95 grip)."
+body_color = Color(0.25, 0.45, 0.28, 1)
+mass = 16000.0
+body_size = Vector3(2.5, 3.4, 9.5)
+com_offset = Vector3(0, -0.8, -0.4)
+wheelbase = 4.6
+track_front = 2.05
+track_rear = 1.95
+wheel_radius = 0.55
+wheel_width = 0.34
+hardpoint_height = -1.15
+driver_eye = Vector3(-0.8, 0.55, -3.9)
+susp_rest = 0.38
+susp_max_travel = 0.22
+spring_rate_front = 356700.0
+spring_rate_rear = 251000.0
+damp_bump = 24100.0
+damp_rebound = 32100.0
+arb_front = 110000.0
+arb_rear = 80000.0
+tire_mu = 0.95
+rear_grip = 1.06
+drive = 0
+engine_power_kw = 250.0
+max_drive_force = 42000.0
+top_speed_kmh = 95.0
+brake_force = 120000.0
+brake_bias_front = 0.6
+drag_coefficient = 3.6
+steering_ratio = 24.0
+steering_wheel_radius = 0.27
+steering_wheel_offset = Vector3(0, -0.3, -0.42)
+steering_column_tilt_deg = 52.0
+max_steer_deg = 44.0

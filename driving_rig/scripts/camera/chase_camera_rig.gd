@@ -66,13 +66,20 @@ var _state := {}         # per-camera smoothing state
 var _space: PhysicsDirectSpaceState3D
 
 
+## Everything is framed for a 4.4 m sedan; a 12 m bus needs the cameras further out. One
+## factor, from the vehicle's own size, scales every distance and height.
+func _size_scale() -> float:
+	var b := _body_size()
+	return clampf(maxf(b.z, b.y * 2.2) / 4.4, 0.85, 3.0)
+
+
 func _ready() -> void:
 	process_physics_priority = 50   # after the car (0) and player (40), before the recorder (100)
 	top_level = true
 	_car = get_node(car_path) as DrivingCar
 	_follow = _car
 	_driver_cam = _car.get_node("DriverCam") as Camera3D
-	_arm.spring_length = arm_length
+	_arm.spring_length = arm_length   # rescaled per vehicle in _physics_process
 	_arm.rotation_degrees.x = pitch_deg
 	var s := SphereShape3D.new()
 	s.radius = 0.25
@@ -203,6 +210,9 @@ func _set_active(cam: Camera3D) -> void:
 func _update_cinematic(dt: float, snap_now: bool) -> void:
 	if _space == null:
 		_space = get_world_3d().direct_space_state
+	var k := _size_scale()
+	_arm.spring_length = arm_length * k
+	_arm.rotation_degrees.x = pitch_deg
 	var f := _follow.global_transform
 	var p := f.origin
 	var fwd := -f.basis.z
@@ -212,17 +222,19 @@ func _update_cinematic(dt: float, snap_now: bool) -> void:
 
 	# heli: high and behind, slow heading, looking down with lead
 	var hf := _smooth_dir("heli_dir", fwd, 1.0, dt, snap_now)
-	var heli_pos := _clear_ground(p + Vector3.UP * 28.0 - hf * 18.0, 10.0)
+	var heli_pos := _clear_ground(p + Vector3.UP * (28.0 * k) - hf * (18.0 * k), 10.0)
 	_place("heli", heli_pos, p + fwd * 5.0, 2.5, 6.0, 35.0, dt, snap_now)
 
 	# front: tracking vehicle ahead, looking back
 	var ff := _smooth_dir("front_dir", fwd, 3.0, dt, snap_now)
-	_place("front", _clear_ground(p + ff * 9.0 + Vector3.UP * 1.3, 0.6), p + Vector3.UP * 0.4, 6.0, 10.0, 50.0, dt, snap_now)
+	_place("front", _clear_ground(p + ff * (9.0 * k) + Vector3.UP * (1.3 * k), 0.6),
+			p + Vector3.UP * (0.4 * k), 6.0, 10.0, 50.0, dt, snap_now)
 
 	# side: Russian arm alongside (driver's side), slight lead
 	var sf := _smooth_dir("side_dir", fwd, 3.0, dt, snap_now)
 	var right := sf.cross(Vector3.UP).normalized()
-	_place("side", _clear_ground(p - right * 6.5 + Vector3.UP * 1.1 + sf * 1.0, 0.5), p + Vector3.UP * 0.4, 5.0, 10.0, 42.0, dt, snap_now)
+	_place("side", _clear_ground(p - right * (6.5 * k) + Vector3.UP * (1.1 * k) + sf * 1.0, 0.5),
+			p + Vector3.UP * (0.4 * k), 5.0, 10.0, 42.0, dt, snap_now)
 
 	# wheel: rigid, low on the left flank behind the front wheel, looking at it
 	var hp := _hardpoint(0)
@@ -242,11 +254,12 @@ func _update_cinematic(dt: float, snap_now: bool) -> void:
 	if replant:
 		var side_sign: float = -float(ts.get("side", 1.0))
 		var ahead := clampf(maxf(vel.length(), 8.0) * 3.0, 30.0, 70.0)
-		plant = _clear_ground(p + fwd * ahead + fwd.cross(Vector3.UP).normalized() * 9.0 * side_sign + Vector3.UP * 1.6, 1.6)
+		plant = _clear_ground(p + fwd * ahead + fwd.cross(Vector3.UP).normalized() * (9.0 * k) * side_sign
+				+ Vector3.UP * (1.6 * k), 1.6)
 		_state["trackside"] = {"plant": plant, "side": side_sign}
 	var dist := plant.distance_to(p)
-	_look("trackside", plant, p + Vector3.UP * 0.4, 8.0, snap_now or replant,
-			clampf(rad_to_deg(2.0 * atan(4.5 / maxf(dist, 1.0))), 6.0, 55.0), dt)
+	_look("trackside", plant, p + Vector3.UP * (0.4 * k), 8.0, snap_now or replant,
+			clampf(rad_to_deg(2.0 * atan(4.5 * k / maxf(dist, 1.0))), 6.0, 55.0), dt)
 
 	# crane: plant ahead and low, rise and swing back over the car as it goes past
 	var cr: Dictionary = _state.get("crane", {})
@@ -261,7 +274,7 @@ func _update_cinematic(dt: float, snap_now: bool) -> void:
 	var ct: float = minf(float(cr.get("t", 0.0)) + dt * 0.3, 1.0)
 	cr["t"] = ct
 	var rise := ct * ct * (3.0 - 2.0 * ct)        # ease up and back
-	var crane_pos := cplant + Vector3.UP * (1.2 + 13.0 * rise) - fwd * (18.0 * rise)
+	var crane_pos := cplant + Vector3.UP * (1.2 + 13.0 * rise * k) - fwd * (18.0 * rise * k)
 	_place("crane", _clear_ground(crane_pos, 1.0), p + Vector3.UP * 0.4, 6.0, 5.0,
 			lerpf(50.0, 42.0, rise), dt, crane_replant)   # snap on replant: easing loses the car
 
@@ -269,23 +282,24 @@ func _update_cinematic(dt: float, snap_now: bool) -> void:
 	var turn := clampf(-_follow_angular_y() * 1.4, -1.0, 1.0)
 	var side_dir := fwd.cross(Vector3.UP).normalized()
 	var bob: float = float(_state.get("orbit_ang", 0.0)) * 0.6
-	var drone_target := p - fwd * 7.5 + side_dir * (5.0 * turn) + Vector3.UP * (3.4 + 0.8 * sin(bob))
+	var drone_target := p - fwd * (7.5 * k) + side_dir * (5.0 * turn * k) + Vector3.UP * (3.4 * k + 0.8 * sin(bob))
 	_place("drone", _clear_ground(drone_target, 1.2), p + fwd * 3.0, 3.0, 4.0, 55.0, dt, snap_now)
 
 	# lowchase: knee-high, close, long lens
 	var lf := _smooth_dir("low_dir", fwd, 2.0, dt, snap_now)
-	_place("lowchase", _clear_ground(p - lf * 7.0 + Vector3.UP * 0.45, 0.35), p + Vector3.UP * 0.5,
-			8.0, 7.0, 34.0, dt, snap_now)
+	_place("lowchase", _clear_ground(p - lf * (7.0 * k) + Vector3.UP * 0.45, 0.35),
+			p + Vector3.UP * (0.5 * k), 8.0, 7.0, 34.0, dt, snap_now)
 
 	# pan: a locked-off tripod. It never moves - it only pans and tilts - until the car gets
 	# far enough away that there is nothing to see, then it replants.
 	var pn: Dictionary = _state.get("pan", {})
 	var pplant: Vector3 = pn.get("plant", Vector3.INF)
 	if snap_now or pplant == Vector3.INF or pplant.distance_to(p) > 110.0:
-		pplant = _clear_ground(p - fwd * 14.0 + fwd.cross(Vector3.UP).normalized() * 16.0 + Vector3.UP * 3.0, 3.0)
+		pplant = _clear_ground(p - fwd * (14.0 * k) + fwd.cross(Vector3.UP).normalized() * (16.0 * k)
+				+ Vector3.UP * (3.0 * k), 3.0)
 		_state["pan"] = {"plant": pplant}
-	_look("pan", pplant, p + Vector3.UP * 0.4, 5.0, snap_now,
-			clampf(rad_to_deg(2.0 * atan(5.0 / maxf(pplant.distance_to(p), 1.0))), 8.0, 60.0), dt)
+	_look("pan", pplant, p + Vector3.UP * (0.4 * k), 5.0, snap_now,
+			clampf(rad_to_deg(2.0 * atan(5.0 * k / maxf(pplant.distance_to(p), 1.0))), 8.0, 60.0), dt)
 
 	# rearwheel: rigid at the back wheel, looking forward along the flank
 	var rhp := _hardpoint(3)
@@ -295,8 +309,8 @@ func _update_cinematic(dt: float, snap_now: bool) -> void:
 	# orbit: slow circle in world space
 	var ang: float = float(_state.get("orbit_ang", 0.0)) + 0.25 * dt
 	_state["orbit_ang"] = ang
-	var orbit_pos := _clear_ground(p + Vector3(cos(ang), 0.0, sin(ang)) * 9.0 + Vector3.UP * 2.5, 0.8)
-	_place("orbit", orbit_pos, p + Vector3.UP * 0.4, 8.0, 12.0, 50.0, dt, snap_now)
+	var orbit_pos := _clear_ground(p + Vector3(cos(ang), 0.0, sin(ang)) * (9.0 * k) + Vector3.UP * (2.5 * k), 0.8)
+	_place("orbit", orbit_pos, p + Vector3.UP * (0.4 * k), 8.0, 12.0, 50.0, dt, snap_now)
 
 
 func _place(n: String, target: Vector3, look_at_pt: Vector3, pos_sharp: float, rot_sharp: float,

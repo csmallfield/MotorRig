@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_7i1ge"]
+
+[resource]
+script = ExtResource("1_7i1ge")
+display_name = "Stretch Limo"
+description = "8.5 m, 2.6 t, 6 m wheelbase: enormous turning circle, lazy weight transfer, and it will scrape over anything sharp. Rear-drive."
+body_color = Color(0.08, 0.08, 0.09, 1)
+mass = 2600.0
+body_size = Vector3(2, 1.45, 8.5)
+com_offset = Vector3(0, -0.15, 0.3)
+wheelbase = 6.0
+track_front = 1.65
+track_rear = 1.65
+wheel_radius = 0.37
+wheel_width = 0.25
+hardpoint_height = -0.24
+driver_eye = Vector3(-0.4, 0.5, -3.2)
+susp_rest = 0.34
+susp_max_travel = 0.17
+spring_rate_front = 70800.0
+spring_rate_rear = 86500.0
+damp_bump = 5400.0
+damp_rebound = 7200.0
+arb_front = 14000.0
+arb_rear = 9000.0
+tire_mu = 1.05
+rear_grip = 1.1
+drive = 0
+engine_power_kw = 180.0
+top_speed_kmh = 180.0
+brake_force = 20000.0
+drag_coefficient = 0.75
+steering_wheel_offset = Vector3(0, -0.26, -0.45)
+max_steer_deg = 30.0

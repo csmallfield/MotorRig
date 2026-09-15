@@ -1,0 +1,40 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_tvkwc"]
+
+[resource]
+script = ExtResource("1_tvkwc")
+display_name = "City Bus"
+description = "12 t, 12 m long, 3.2 m tall. Slow to gather speed, slower to stop, and it leans hard. Right on the edge of tipping in a hard corner (SSF 0.94 vs 0.95 grip) - be smooth with it."
+body_color = Color(0.2, 0.42, 0.7, 1)
+mass = 12000.0
+body_size = Vector3(2.55, 3.1, 12)
+com_offset = Vector3(0, -0.75, 0.2)
+wheelbase = 6.0
+track_front = 2.1
+track_rear = 2.0
+wheel_radius = 0.55
+wheel_width = 0.32
+hardpoint_height = -1.05
+driver_eye = Vector3(-0.85, 0.35, -5.2)
+susp_rest = 0.36
+susp_max_travel = 0.2
+spring_rate_front = 294300.0
+spring_rate_rear = 336400.0
+damp_bump = 22900.0
+damp_rebound = 30500.0
+arb_front = 90000.0
+arb_rear = 60000.0
+tire_mu = 0.95
+drive = 0
+engine_power_kw = 220.0
+max_drive_force = 34000.0
+top_speed_kmh = 105.0
+brake_force = 90000.0
+brake_bias_front = 0.55
+drag_coefficient = 3.2
+steering_ratio = 22.0
+steering_wheel_radius = 0.26
+steering_wheel_offset = Vector3(0, -0.3, -0.4)
+steering_column_tilt_deg = 50.0
+max_steer_deg = 42.0

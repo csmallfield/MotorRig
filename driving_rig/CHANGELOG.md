@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 — four more vehicles and a city
+
+- **Vehicles:** Quad ATV (320 kg), Stretch Limo (2.6 t, 8.5 m), City Bus (12 t, 12 m) and
+  Garbage Truck (16 t). All pass the settle / full-lock / flick checks. Rear spring rates are
+  set so each sits level under its own weight bias.
+- **City worlds:** a New York grid at real dimensions (900 x 264 ft blocks, 100 ft avenues,
+  60 ft streets, 15 ft sidewalks, 6 in curbs). 10 blocks (640 x 512 m) or 18 (945 x 611 m).
+  Buildings, curbs, hydrants and poles collide; markings are visual only. Merged render meshes
+  keep it to six meshes and 662 colliders - 15x real time headless.
+- **Cameras scale with the vehicle**: the framing tuned for a 4.4 m sedan put the side camera
+  inside a 9.5 m truck.
+- Tests: the full-lock check now allows a vehicle to tip when its centre of mass is genuinely
+  above what its tyres can hold (quad, truck) instead of assuming sedan proportions; each
+  vehicle is dropped from its own ride height; the ride-height prediction accounts for weight
+  bias (it was 9 mm out on the limo). 8 cars x 3 checks, 6 worlds, all pass.
+
 ## 0.11.0 — constrained models, skid curves, five more cameras
 
 - **Maya: attaching a car model now uses parentConstraints.** The model stays in its own

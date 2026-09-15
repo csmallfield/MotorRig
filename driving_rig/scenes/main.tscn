@@ -8,6 +8,9 @@
 [ext_resource type="Material" path="res://materials/terrain.tres" id="6_tmat"]
 [ext_resource type="Material" path="res://materials/props.tres" id="7_pmat"]
 [ext_resource type="Material" path="res://materials/marker.tres" id="8_mmat"]
+[ext_resource type="Material" path="res://materials/city_road.tres" id="14_road"]
+[ext_resource type="Material" path="res://materials/city_sidewalk.tres" id="15_walk"]
+[ext_resource type="Material" path="res://materials/city_building.tres" id="16_bld"]
 [ext_resource type="Script" path="res://scripts/replay/take_player.gd" id="9_player"]
 [ext_resource type="Script" path="res://scripts/ui/take_browser.gd" id="10_browser"]
 [ext_resource type="Material" path="res://materials/ghost_body.tres" id="11_ghost"]
@@ -46,6 +49,9 @@ script = ExtResource("2_terrain")
 material = ExtResource("6_tmat")
 props_material = ExtResource("7_pmat")
 marker_material = ExtResource("8_mmat")
+road_material = ExtResource("14_road")
+sidewalk_material = ExtResource("15_walk")
+building_material = ExtResource("16_bld")
 
 [node name="Car" parent="." instance=ExtResource("1_car")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)

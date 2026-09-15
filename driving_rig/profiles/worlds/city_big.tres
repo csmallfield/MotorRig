@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_bxmd3"]
+
+[resource]
+script = ExtResource("1_bxmd3")
+display_name = "City (big)"
+description = "The same city, 18 blocks of it: 945 x 611 m. Heavier - check the frame rate before recording a long take."
+source = 2
+seed_value = 4242
+city_blocks_x = 3
+city_blocks_z = 6

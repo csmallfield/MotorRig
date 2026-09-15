@@ -8,7 +8,7 @@ extends Node3D
 ##   SCENE       any imported glTF/scene — every MeshInstance3D gets a trimesh collider
 ##               built from its own render mesh (no simplified proxy)
 
-enum Source { PROCEDURAL, SCENE }
+enum Source { PROCEDURAL, SCENE, CITY }
 
 const LAYER_WORLD: int = 1
 
@@ -31,6 +31,10 @@ var imported_scene: PackedScene
 @export var material: Material
 @export var props_material: Material
 @export var marker_material: Material
+@export_group("City materials")
+@export var road_material: Material
+@export var sidewalk_material: Material
+@export var building_material: Material
 
 ## Written into every take's meta so a take always names the ground it was driven on.
 var collision_source_id: String = ""
@@ -41,6 +45,8 @@ var _noise := FastNoiseLite.new()
 func _ready() -> void:
 	_apply_profile(_resolve_profile())
 	match source:
+		Source.CITY:
+			_build_city()
 		Source.PROCEDURAL:
 			_build_procedural()
 			if build_test_props:
@@ -66,6 +72,7 @@ func _apply_profile(p: WorldProfile) -> void:
 	for n in ["source", "imported_scene", "seed_value", "size", "cell", "flat_radius",
 			"blend_distance", "amplitude", "frequency", "octaves", "build_test_props"]:
 		set(n, p.get(n))
+	profile = p
 	WorldProfile.active = p
 	Engine.physics_ticks_per_second = p.tick_hz
 	PhysicsServer3D.area_set_param(get_world_3d().space, PhysicsServer3D.AREA_PARAM_GRAVITY, p.gravity)
@@ -79,6 +86,22 @@ func _geometry_suffix() -> String:
 	if legacy:
 		return ""
 	return "_g%s" % ("%s|%s|%s|%s|%d" % [flat_radius, blend_distance, amplitude, frequency, octaves]).md5_text().left(8)
+
+
+# === CITY ===
+
+func _build_city() -> void:
+	var p: WorldProfile = profile
+	var info := CityBuilder.new().build(self, p, {
+		"road": road_material if road_material else material,
+		"sidewalk": sidewalk_material if sidewalk_material else props_material,
+		"buildings": building_material if building_material else props_material,
+		"props": props_material, "paint": marker_material,
+	})
+	collision_source_id = "city_seed%d_%dx%d_%.0fx%.0f_%s" % [p.seed_value, p.city_blocks_x,
+		p.city_blocks_z, p.block_size_x, p.block_size_z, "props" if p.build_test_props else "bare"]
+	print("City: %d buildings, %d street props, %.0f x %.0f m" % [info["buildings"], info["props"],
+		info["width"], info["depth"]])
 
 
 # === PROCEDURAL ===

@@ -196,14 +196,23 @@ func drive(th: float, br: float, steer: float, hb: bool = false) -> void:
 func place(pos: Vector3, yaw: float) -> void:
 	car._request_reset(Transform3D(Basis(Vector3.UP, yaw), pos))
 
+## Drop height that suits the vehicle: a bus rests at 1.87 m, so the sedan's 1.0 would bury it.
+func spawn_y() -> float:
+	return _predicted_ride_y() + 0.25
+
+
 func air_count() -> int:
 	var a := 0
 	for i in 4:
 		a += 1 - car.wheel_grounded[i]
 	return a
 
+## Ride height the front springs settle at. The front axle carries only its share of the
+## weight when the centre of mass sits off centre, so the naive mass/4 is wrong for anything
+## nose- or tail-heavy (it was 9 mm out on the limo).
 func _predicted_ride_y() -> float:
-	var comp := car.mass * car._gravity * 0.25 / car.spring_rate_front
+	var front_share: float = clampf((car.wheelbase * 0.5 - car.com_offset.z) / car.wheelbase, 0.0, 1.0)
+	var comp := car.mass * car._gravity * front_share * 0.5 / car.spring_rate_front
 	return -(car.hardpoint_height - (car.susp_rest - comp) - car.wheel_radius)
 
 
@@ -624,6 +633,8 @@ func _t_browser() -> bool:
 
 ## Every car profile on disk: settles cleanly at its own ride height.
 func _t_car_settle() -> bool:
+	if t == 1:
+		place(Vector3(0, spawn_y(), 0), 0.0)
 	var y := car.global_position.y
 	if sec() > 3.0 and sec() <= 5.0:
 		st["lo"] = minf(st.get("lo", 99.0), y)
@@ -638,17 +649,19 @@ func _t_car_settle() -> bool:
 	return false
 
 
-## Full lock at 80 km/h: no spin, no wobble, no rollover.
+## Full lock, at a speed the vehicle can actually reach: no spin, no wobble, and upright
+## unless it is physically top-heavy enough to tip (a quad is - so is a real one).
 func _t_car_corner() -> bool:
 	if t == 1:
-		place(Vector3(280, 1.0, 280), PI * 0.25)
+		place(Vector3(280, spawn_y(), 280), PI * 0.25)
+		st["target"] = minf(80.0, car.top_speed_kmh * 0.7)
 	if not st.has("go"):
 		drive(1.0, 0.0, 0.0)
-		if kmh() >= 80.0:
+		if kmh() >= st["target"]:
 			st["go"] = sec()
 			st["yr"] = PackedFloat64Array()
 		return false
-	drive(clampf((80.0 - kmh()) * 0.1, 0.0, 1.0), 0.0, 1.0)
+	drive(clampf((st["target"] - kmh()) * 0.1, 0.0, 1.0), 0.0, 1.0)
 	var el: float = sec() - st["go"]
 	st["slip"] = maxf(st.get("slip", 0.0), absf(body_slip_deg()))
 	st["roll"] = maxf(st.get("roll", 0.0), absf(roll_deg()))
@@ -665,9 +678,15 @@ func _t_car_corner() -> bool:
 		for v in yr:
 			sd += (v - m) * (v - m)
 		sd = sqrt(sd / yr.size())
-		var ok: bool = st["slip"] < 15.0 and sd < 0.08 and st["roll"] < 12.0 and st["minup"] > 0.9
-		_result(ok, "%s full lock @80: body slip %.1f deg · yaw s.d. %.3f · roll %.1f deg · upright %s" % [
-			car.active_profile.display_name, st["slip"], sd, st["roll"], st["minup"] > 0.9])
+		# static stability factor: half the track over the centre-of-mass height. Below the
+		# tyres' grip the vehicle tips before it slides - true of quads, and of this one.
+		var com_h: float = _predicted_ride_y() + car.com_offset.y
+		var ssf: float = (car.track_front * 0.5) / maxf(com_h, 0.01)
+		var tippy: bool = ssf < car.tire_mu * car.front_grip
+		var ok: bool = st["slip"] < 15.0 and sd < 0.08 and (tippy or (st["roll"] < 12.0 and st["minup"] > 0.9))
+		_result(ok, "%s full lock @%.0f: body slip %.1f deg · yaw s.d. %.3f · roll %.1f deg · upright %s · SSF %.2f vs grip %.2f%s" % [
+			car.active_profile.display_name, st["target"], st["slip"], sd, st["roll"],
+			st["minup"] > 0.9, ssf, car.tire_mu * car.front_grip, " (tips by design)" if tippy else ""])
 		return true
 	return false
 
@@ -676,7 +695,7 @@ func _t_car_corner() -> bool:
 func _t_car_flick() -> bool:
 	var target := minf(110.0, car.top_speed_kmh * 0.6)
 	if t == 1:
-		place(Vector3(280, 1.0, 280), PI * 0.25)
+		place(Vector3(280, spawn_y(), 280), PI * 0.25)
 	if not st.has("go"):
 		drive(1.0, 0.0, 0.0)
 		if kmh() >= target:

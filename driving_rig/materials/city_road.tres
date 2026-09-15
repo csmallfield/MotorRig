@@ -1,0 +1,12 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://shaders/grid_triplanar.gdshader" id="1_grid"]
+
+[resource]
+shader = ExtResource("1_grid")
+shader_parameter/base_color = Color(0.17, 0.17, 0.18, 1)
+shader_parameter/line_color = Color(0.30, 0.30, 0.32, 1)
+shader_parameter/major_color = Color(0.45, 0.45, 0.47, 1)
+shader_parameter/grid_size = 1.0
+shader_parameter/major_every = 10
+shader_parameter/object_space = false

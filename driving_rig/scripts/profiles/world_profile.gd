@@ -7,7 +7,7 @@ extends Resource
 ## Surface grip and air density are *physics*, not geometry: a wet world with the same
 ## terrain shares its collision source (and so its scene export) with the dry one.
 
-enum Source { PROCEDURAL, SCENE }
+enum Source { PROCEDURAL, SCENE, CITY }
 
 ## The profile the running scene was built with (set by Terrain). Read by the car.
 static var active: WorldProfile
@@ -37,7 +37,26 @@ static var active: WorldProfile
 @export var amplitude: float = 14.0
 @export var frequency: float = 0.006
 @export_range(1, 6) var octaves: int = 3
-@export var build_test_props: bool = true
+@export var build_test_props: bool = true   ## PROCEDURAL: bumps/ramp/mark. CITY: hydrants and poles.
+
+@export_group("City")
+## Blocks east-west (between avenues) and north-south (between streets).
+@export_range(1, 8) var city_blocks_x: int = 2
+@export_range(1, 12) var city_blocks_z: int = 5
+## Manhattan at real size: blocks 900 x 264 ft, avenues 100 ft, streets 60 ft, sidewalks 15 ft,
+## curbs 6 in. block_size_x runs east-west (the long way, avenue to avenue).
+@export var block_size_x: float = 274.3
+@export var block_size_z: float = 80.5
+@export var avenue_width: float = 30.5
+@export var street_width: float = 18.3
+@export var sidewalk_width: float = 4.6
+@export var curb_height: float = 0.15
+@export var building_depth: float = 24.0
+@export var lot_width_min: float = 11.0
+@export var lot_width_max: float = 26.0
+@export var building_height_min: float = 14.0
+@export var building_height_max: float = 58.0
+@export var city_road_markings: bool = true
 
 
 func to_dict() -> Dictionary:
@@ -54,8 +73,17 @@ func to_dict() -> Dictionary:
 
 
 func summary() -> String:
-	var terrain := ("scene: %s" % (imported_scene.resource_path.get_file() if imported_scene else "(none set)")) \
-			if source == Source.SCENE else ("seed %d, %d m, hills %.1f m%s" % [seed_value, int(size), amplitude,
-			", props" if build_test_props else ""])
+	var terrain := ""
+	match source:
+		Source.SCENE:
+			terrain = "scene: %s" % (imported_scene.resource_path.get_file() if imported_scene else "(none set)")
+		Source.CITY:
+			terrain = "city %dx%d blocks (%.0f x %.0f m)%s" % [city_blocks_x, city_blocks_z,
+				city_blocks_x * block_size_x + (city_blocks_x + 1) * avenue_width,
+				city_blocks_z * block_size_z + (city_blocks_z + 1) * street_width,
+				", hydrants + poles" if build_test_props else ""]
+		_:
+			terrain = "seed %d, %d m, hills %.1f m%s" % [seed_value, int(size), amplitude,
+				", props" if build_test_props else ""]
 	return "%s  |  g %.2f  |  %d Hz  |  grip %.2f%s" % [terrain, gravity, tick_hz, surface_grip,
 			("  |  air x%.2f" % air_density_scale) if not is_equal_approx(air_density_scale, 1.0) else ""]

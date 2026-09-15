@@ -1,0 +1,41 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_mpunj"]
+
+[resource]
+script = ExtResource("1_mpunj")
+display_name = "Quad ATV"
+description = "320 kg quad: tiny, light and twitchy, with a short wheelbase and knobbly-tyre grip. Stable enough on the flat, but it is narrow and sits high - trip it on a kerb or land it badly and it will go over."
+body_color = Color(0.85, 0.55, 0.1, 1)
+mass = 320.0
+body_size = Vector3(0.9, 0.75, 1.9)
+wheelbase = 1.27
+track_front = 1.15
+track_rear = 1.12
+wheel_radius = 0.28
+wheel_width = 0.22
+hardpoint_height = -0.12
+driver_eye = Vector3(0, 0.5, 0.1)
+susp_rest = 0.3
+susp_max_travel = 0.2
+spring_rate_front = 10500.0
+spring_rate_rear = 10500.0
+damp_bump = 660.0
+damp_rebound = 880.0
+arb_front = 900.0
+arb_rear = 600.0
+tire_mu = 1.05
+rear_grip = 1.05
+drive = 0
+awd_rear_bias = 1.0
+engine_power_kw = 33.0
+max_drive_force = 2600.0
+top_speed_kmh = 95.0
+brake_force = 4200.0
+brake_bias_front = 0.55
+drag_coefficient = 0.32
+steering_ratio = 1.0
+steering_wheel_radius = 0.24
+steering_wheel_offset = Vector3(0, -0.1, -0.35)
+steering_column_tilt_deg = 55.0
+max_steer_deg = 38.0

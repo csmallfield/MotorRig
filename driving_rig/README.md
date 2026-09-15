@@ -1,4 +1,4 @@
-# Driving Rig — v0.11.0
+# Driving Rig — v0.12.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -33,6 +33,8 @@ proxy rig in Maya 2026 with spin re-solve.
 Recover/reset are locked while a take is running so every take is physically continuous.
 
 ## Cameras
+
+All camera distances scale with the vehicle, so a 12 m bus is framed like a sedan.
 
 Fourteen cameras, all running every tick (so switching never jumps, and all are recorded):
 
@@ -267,9 +269,25 @@ Shipped profiles — all pass the stability tests below:
 | Hatchback FWD | 1050 kg, 110 kW, soft, short | 5.4 deg, 3.2 deg | 2.0 deg |
 | Sports RWD | 1350 kg, 300 kW, stiff, TC on | 2.7 deg, 1.8 deg | 1.3 deg |
 | SUV AWD | 2 t, soft and tall (SSF 1.29 g) | 4.4 deg, 4.3 deg | 1.7 deg |
+| Quad ATV | 320 kg, 1.27 m wheelbase, tips if tripped (SSF 1.09 vs 1.05 grip) | 7.4 deg, 6.4 deg | 2.4 deg |
+| Stretch Limo | 2.6 t, 8.5 m, 6 m wheelbase, rear-drive | 2.6 deg, 3.8 deg | 1.1 deg |
+| City Bus | 12 t, 12 m, 3.1 m tall — on the edge of tipping (SSF 0.94 vs 0.95) | 2.3 deg, 4.1 deg | 0.9 deg |
+| Garbage Truck | 16 t, nose-heavy, **goes over in a hard corner** (SSF 0.89 vs 0.95) | 5.8 deg, 41.5 deg | 1.3 deg |
 
 Worlds: **Default Hills**, **Flat Pad** (all 800 m flat), **Rough Country** (seed 777, 22 m
-hills, 4 octaves), **Wet Hills** (Default Hills at 70 % grip).
+hills, 4 octaves), **Wet Hills** (Default Hills at 70 % grip), and two cities.
+
+**City Blocks / City (big)** — a New York grid at real dimensions: blocks of 900 × 264 ft,
+100 ft avenues, 60 ft streets, 15 ft sidewalks and 6 in curbs. City Blocks is 10 blocks
+(640 × 512 m, 391 buildings); City (big) is 18 blocks (945 × 611 m). **Buildings, curbs,
+hydrants and light poles all collide** — mount a kerb at 18 km/h and the car climbs it; hit a
+wall at 55 and it stops dead. Road markings are visual only. The render meshes are merged per
+category, so the whole city is six meshes (42 k verts) and 662 colliders, and it still runs at
+15× real time headless. A scene export gives six OBJs.
+
+Tune the city in the World profile's City group: `city_blocks_x/z`, block and street widths,
+`building_height_min/max`, `lot_width_min/max`, `building_depth`, `city_road_markings`, and
+`build_test_props` for the hydrants and poles.
 
 **Driving mode** — how the car answers *you*, layered on whatever car you picked, so one mode
 suits all four. Everything is a multiplier (×1.0 = leave the car alone), so **Standard changes
