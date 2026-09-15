@@ -1,4 +1,4 @@
-# Driving Rig — v0.12.0
+# Driving Rig — v0.12.1
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -390,7 +390,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | mode_stunt | hard corner rolls it upside down; a quick flick does not |
 | mode_drivable | every mode except Stunt: tracks straight at full throttle, a steady corner stays a corner, and full lock actually turns rather than plowing |
 | reverse_gear | the brake only brakes; X selects reverse at a standstill and is refused at speed |
-| car_profiles | 4 cars x settle / full lock / flick — see the profile table |
+| car_profiles | 8 vehicles x spawn-and-drive / settle / full lock / flick — see the profile table |
 | world_profiles | 4 worlds: build, gravity/tick/grip applied, car settles |
 
 ### Python side (no Maya needed)

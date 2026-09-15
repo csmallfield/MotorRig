@@ -42,7 +42,7 @@ func _initialize() -> void:
 		if a == "car_profiles":
 			for e: Dictionary in root.get_node("SimConfig").scan_cars():
 				if e["profile"]:
-					for kind in ["settle", "corner", "flick"]:
+					for kind in ["spawn", "settle", "corner", "flick"]:
 						queue.append("car:%s:%s" % [e["path"], kind])
 		elif a == "world_profiles":
 			for e: Dictionary in root.get_node("SimConfig").scan_worlds():
@@ -1290,3 +1290,29 @@ func _t_layout() -> bool:
 	_result(ok, "%d cameras, all named uniquely · O_ACTIVE %d (want %d) · STRIDE %d · rig builds %d" % [
 		TakeFormat.CAMERA_NAMES.size(), TakeFormat.O_ACTIVE, want, TakeFormat.STRIDE, rig.cameras.size()])
 	return true
+
+
+## The path a player actually takes: pick the profile, press DRIVE, hold the throttle. No
+## teleporting the car to a convenient spot first - that is what hid the bus and the garbage
+## truck spawning inside the road, where they could not move at all.
+func _t_car_spawn() -> bool:
+	if t == 1:
+		st["spawn_y"] = car.global_position.y
+	car.input_throttle = 1.0
+	if t == 240 * 5:
+		# the ground reference is where the wheels are touching, not a raycast that can miss
+		var bottom: float = car.global_position.y - car.body_size.y * 0.5
+		var ground := 0.0
+		var touching := 0
+		for i in 4:
+			if car.wheel_grounded[i]:
+				ground += car.wheel_contact_p[i].y
+				touching += 1
+		ground = ground / touching if touching > 0 else bottom
+		var ok: bool = kmh() > 20.0 and touching == 4 and bottom > ground + 0.05 \
+				and car.global_basis.y.y > 0.99
+		_result(ok, "%s: scene spawn %.2f m, rests at %.2f (needs %.2f) · body %.2f m clear of the road · %.0f km/h from a standstill" % [
+			car.active_profile.display_name, st["spawn_y"], car.global_position.y,
+			car.rest_height(), bottom - ground, kmh()])
+		return true
+	return false

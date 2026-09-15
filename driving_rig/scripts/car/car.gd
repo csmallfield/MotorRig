@@ -175,6 +175,7 @@ var _pending_reset: bool = false
 var _reset_xform: Transform3D
 var _spawn_xform: Transform3D
 var _just_reset: bool = false
+var _needs_ground_placement: bool = true
 
 
 var active_profile: CarProfile   ## what this car was actually built from
@@ -452,7 +453,32 @@ func _build_wheels() -> void:
 
 # === PHYSICS ===
 
+## Height of the chassis origin when the car is sitting on its tyres at rest. A 12 m bus
+## rests at 1.87 m; the scene's spawn height suits a sedan, so anything taller has to be
+## lifted or it starts with its body inside the road and can't move at all.
+func rest_height() -> float:
+	var front_share := clampf((wheelbase * 0.5 - com_offset.z) / wheelbase, 0.0, 1.0)
+	var comp := minf(mass * _gravity * front_share * 0.5 / spring_rate_front, susp_max_travel)
+	return wheel_radius + (susp_rest - comp) - hardpoint_height
+
+
+## Raise the car if its spawn point would bury it. Never lowers it - dropping the car onto its
+## wheels from a height is the intended behaviour, and the spec's first test.
+func _place_on_ground() -> void:
+	var needed := _ground_height_at(global_position) + rest_height() + 0.05
+	if global_position.y < needed:
+		var xf := global_transform
+		xf.origin.y = needed
+		_spawn_xform = xf
+		_request_reset(xf)
+	else:
+		_spawn_xform = global_transform
+
+
 func _physics_process(delta: float) -> void:
+	if _needs_ground_placement:
+		_needs_ground_placement = false   # the physics space isn't queryable in _ready
+		_place_on_ground()
 	if _just_reset:
 		_just_reset = false
 		reset_physics_interpolation()
@@ -775,7 +801,7 @@ func recover_upright() -> void:
 		fwd = Vector3.FORWARD
 	var yaw := atan2(-fwd.x, -fwd.z)
 	var ground := _ground_height_at(p)
-	_request_reset(Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, ground + 1.0, p.z)))
+	_request_reset(Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, ground + rest_height() + 0.05, p.z)))
 
 
 func reset_to_spawn() -> void:

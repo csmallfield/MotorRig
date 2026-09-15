@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.1 — tall vehicles could not move
+
+- **Fix:** the City Bus and Garbage Truck sat on the road and would not drive. `main.tscn`
+  spawns every vehicle at 1.5 m, which suits a sedan; a bus rests at 1.87 m, so it started
+  with its body 2 cm inside the road and the solver held it there. The car now measures its
+  own rest height and lifts itself clear of the ground on the first physics tick (it never
+  lowers itself, so dropping a car onto its wheels still works). *Recover upright* used a
+  fixed 1 m drop and had the same problem; it now uses the vehicle's rest height too.
+- 0.12.0 hid this: the tests spawned each vehicle at its own ride height instead of using the
+  scene's. New `spawn` check per vehicle does what a player does - pick it, hold the throttle -
+  and asserts it reaches 20 km/h with all four wheels down and its body clear of the road.
+
 ## 0.12.0 — four more vehicles and a city
 
 - **Vehicles:** Quad ATV (320 kg), Stretch Limo (2.6 t, 8.5 m), City Bus (12 t, 12 m) and
