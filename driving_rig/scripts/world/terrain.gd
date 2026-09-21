@@ -8,7 +8,7 @@ extends Node3D
 ##   SCENE       any imported glTF/scene — every MeshInstance3D gets a trimesh collider
 ##               built from its own render mesh (no simplified proxy)
 
-enum Source { PROCEDURAL, SCENE, CITY }
+enum Source { PROCEDURAL, SCENE, CITY, INTERCHANGE }
 
 const LAYER_WORLD: int = 1
 
@@ -38,6 +38,8 @@ var imported_scene: PackedScene
 
 ## Written into every take's meta so a take always names the ground it was driven on.
 var collision_source_id: String = ""
+## Set when the world is an interchange: ramp paths and their measurements.
+var interchange: InterchangeBuilder
 
 var _noise := FastNoiseLite.new()
 
@@ -47,6 +49,8 @@ func _ready() -> void:
 	match source:
 		Source.CITY:
 			_build_city()
+		Source.INTERCHANGE:
+			_build_interchange()
 		Source.PROCEDURAL:
 			_build_procedural()
 			if build_test_props:
@@ -102,6 +106,24 @@ func _build_city() -> void:
 		p.city_blocks_z, p.block_size_x, p.block_size_z, "props" if p.build_test_props else "bare"]
 	print("City: %d buildings, %d street props, %.0f x %.0f m" % [info["buildings"], info["props"],
 		info["width"], info["depth"]])
+
+
+func _build_interchange() -> void:
+	var p: WorldProfile = profile
+	var b := InterchangeBuilder.new()
+	interchange = b
+	var info := b.build(self, p, {
+		"ground": material,
+		"road": road_material if road_material else material,
+		"structure": sidewalk_material if sidewalk_material else props_material,
+		"paint": marker_material,
+	})
+	collision_source_id = "interchange_seed%d_%s" % [p.seed_value, "props" if p.build_test_props else "bare"]
+	var lines := PackedStringArray(["Interchange: arterial %.1f m up, %.0f m span" % [info["deck_y"], info["span"]]])
+	for r: Dictionary in info["ramps"]:
+		lines.append("  %-20s %5.0f m long · tightest radius %4.0f m · steepest grade %.1f%%" % [
+			r["name"], r["length"], r["min_radius"], r["max_grade"] * 100.0])
+	print("\n".join(lines))
 
 
 # === PROCEDURAL ===

@@ -1,12 +1,14 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_8wxqj"]
+[ext_resource type="PackedScene" path="res://models/vehicles/hatch_fwd.glb" id="1_vbt0d"]
 
 [resource]
 script = ExtResource("1_8wxqj")
 display_name = "Hatchback FWD"
 description = "Light front-driver: short wheelbase, soft springs, lively turn-in, mild lift-off rotation."
 body_color = Color(0.2, 0.55, 0.85, 1)
+chassis_scene = ExtResource("1_vbt0d")
 mass = 1050.0
 body_size = Vector3(1.25, 0.95, 4)
 wheelbase = 2.5

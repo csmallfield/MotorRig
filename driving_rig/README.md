@@ -1,4 +1,4 @@
-# Driving Rig — v0.12.1
+# Driving Rig — v0.15.3
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -68,12 +68,45 @@ The car has a steering wheel (torus, spoke, marker at 12 o'clock) that turns by 
 wheels' steer angle × `steering_ratio` (default 15:1: full lock ≈ 490°), counter-clockwise from
 the seat when turning left. Position, radius and column tilt are in the car profile.
 
+**Every vehicle ships with a low-poly proxy body** in `models/vehicles/` (132–192 triangles),
+already assigned to its profile — see `models/README.md`. They are built from each profile's own
+numbers: length and height stay inside the collision box, width goes out to the track with the
+sills inside the tyres so the wheels sit in open arches, and the body colour comes from the
+profile. Physics is unchanged — the collider is still the `body_size` box.
+
 **Custom chassis:** drop a scene (a `.tscn`, or an imported `.glb`/`.gltf`/`.blend`) into the
 car profile's `chassis_scene` and fit it with `chassis_transform`. It replaces the proxy box;
 the collider is still the `body_size` box, so size that to match (handling is unchanged).
 `hide_chassis_in_driver_cam` (default on) hides it from the driver cam — turn it off for a model
 with an interior and see-through glass. The replay ghost rebuilds your model from the take.
 Maya keeps the proxy cube (it can't read Godot scenes): parent your own model under `chassis`.
+
+## Sound
+
+Drop files into `audio/default/` (or `audio/<car profile name>/` for one vehicle) and they are
+picked up — no code, no scene changes. **`audio/README.md` has the full list**; the short version:
+
+| name | what it is |
+|---|---|
+| `engine_0800.ogg`, `engine_2500.ogg`, `engine_5200.ogg` … | steady loops named for the rpm they were recorded at; the two nearest are crossfaded and each is pitched to the exact rpm |
+| `tyre_roll.ogg`, `skid.ogg`, `wind.ogg`, `scrape.ogg` | seamless loops; gain and pitch follow speed and how hard the tyres are sliding |
+| `impact_01.ogg` …, `bump_01.ogg` … | one-shots, picked at random with ±8 % pitch variance |
+
+A vehicle's own folder wins, `default` is the fallback, and anything missing is silent rather
+than an error. On spawn the console prints what was found and what wasn't, so you can check a
+drop-in landed. `user://audio/…` works too, for an exported build.
+
+Road speed drives a **pretend gearbox** (a real one isn't modelled, but without it the engine
+pitches up like a siren all the way to top speed): rpm climbs through each gear and drops at the
+change, and wheelspin lifts it. Per vehicle, in the car profile's Sound group:
+`engine_idle_rpm`, `engine_redline_rpm`, `gear_count`, `engine_volume_db`, `audio_set`. The bus
+and garbage truck idle low and redline at ~2 600, so give the diesels their own folder.
+
+**Audio with the take:** the recorder captures the master mix to `take_0001.wav` beside the take
+(toggle `record_audio` on the Recorder node). It's a real-time capture, so a headless run has no
+audio clock and it quietly does nothing. Export carries the `.wav` with the take, and the Maya
+importer loads it onto the time slider, offset so it lines up with the animation — the capture
+starts on the countdown, before the take's first frame, and the amount is stored in the take.
 
 ## Take browser
 
@@ -285,6 +318,15 @@ wall at 55 and it stops dead. Road markings are visual only. The render meshes a
 category, so the whole city is six meshes (42 k verts) and 662 colliders, and it still runs at
 15× real time headless. A scene export gives six OBJs.
 
+**Highway Interchange** — a grade-separated interchange at real highway dimensions. Six-lane
+mainline (12 ft lanes, 10 ft outside shoulders, 12 m median), an arterial crossing **6.4 m**
+above it on a 92 m bridge deck with **5.00 m of clearance**, and a partial cloverleaf: four
+ramps, one per quadrant — two direct (365 m, 101 m radius, 2.6 % grade) and two loops
+(395 m, 52 m radius, 3.9 %). A 40 km/h loop needs 43 m of radius, so those are real numbers,
+not eyeballed ones. Barriers appear along a ramp wherever it is high enough to fall off; the
+bridge deck is solid, so something taller than the clearance hits it. Gantries, lighting and
+a median barrier come with `build_test_props`.
+
 Tune the city in the World profile's City group: `city_blocks_x/z`, block and street widths,
 `building_height_min/max`, `lot_width_min/max`, `building_depth`, `city_road_markings`, and
 `build_test_props` for the hydrants and poles.
@@ -385,6 +427,13 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
 | custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |
+| audio_files | per-vehicle folder wins, fallback works, rpm layers sorted, a missing sound is silent |
+| audio_engine | rpm stays inside idle…redline and shifts through the gears accelerating |
+| audio_impact | driving hard reports no impacts; hitting a wall reports one, scaled by how hard |
+| interchange | ramp radii and grades within highway standards, the road surface present along every path, 5 m bridge clearance, no two ramps on the same ground |
+| interchange_drive | all four ramps driven from the mainline up to the arterial, including the loop that passes under the bridge |
+| vehicle_models | every surface of every vehicle body encloses a positive volume, like a box Godot made itself (catches inside-out meshes) |
+| interchange_finish | rails follow every ramp's curve (hit at the same distance from the centreline all the way round) · no two surfaces within 5 mm anywhere (no z-fighting) |
 | drive_modes | every mode on disk: builds, applies, drives straight; Standard proven neutral |
 | mode_loose | all four wheels lock · 28° of lock at 120 km/h · sustained 180° donut at 34 km/h |
 | mode_stunt | hard corner rolls it upside down; a quick flick does not |

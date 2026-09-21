@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.15.3 — z-fighting on the vehicle bodies
+
+- **Fix:** roofs flickered. The glass came up to the same height as the roof panel over it, so
+  their top faces shared a plane. The glass now stops under the panel.
+- **Fix:** headlights and tail lights were each built twice, one inside the other, on the centre
+  line. The box builder ignored its x position, so every mirrored pair landed in the middle - a
+  single light box per end instead of a pair, and flickering. Lights are now actual pairs.
+- The model builder now refuses to write any two pieces that show the same face at the same
+  depth. That found 24-28 overlapping pairs per vehicle: the roof on the cars, and the doubled
+  lights on all eight.
+
+## 0.15.2 — vehicle bodies were inside-out
+
+- **Fix:** every triangle of all eight proxy bodies faced inward, so you saw the inside of the
+  far walls. The corners were listed counter-clockwise as seen from *inside* each solid; glTF
+  wants counter-clockwise from outside. Twisted faces (a solid tapering differently top and
+  bottom) now get a normal per triangle rather than one shared one.
+- The builder now refuses to write a face that points into its solid or a triangle that winds
+  against its normal.
+- New `vehicle_models` test: each material surface of each body must enclose a positive signed
+  volume, measured against a box Godot built itself. A winding-vs-normal check was tried first
+  and passed on the broken models - they were *consistently* inside-out, winding and normals
+  agreeing, both pointing in - so it could never have caught this. Signed volume does, and
+  was confirmed to fail on the 0.15.0 files.
+
+## 0.15.1 — interchange fixes
+
+- **Fix: ramp rails sat crossways to the road.** They were axis-aligned boxes, so on any ramp not
+  heading north-south they ran perpendicular to it - and their colliders *were* rotated, so the
+  wall you hit was not the wall you saw. Rails are now one continuous wall per run, extruded
+  along the ramp, with a trimesh collider built from the same triangles. They stop where a ramp
+  comes alongside the arterial, which is where you merge.
+- **Fix: z-fighting.** The grass and every at-grade road were both at exactly y = 0; ramps were
+  laid *on top of* the carriageway where they left it; the bridge deck's top was level with the
+  road on it; and the Hermite ramps overshot a few mm below grade near their ends. The ground now
+  sits 8 cm down, ramps start beside the carriageway, the deck is 3 cm thinner (clearance still
+  5.00 m), and ramp heights ease between their ends instead of following the curve's overshoot.
+- New `interchange_finish` test: sideways rays from every raised ramp must hit its rail at the
+  same distance all the way round, and a sweep of 9,000+ points finds no two surfaces within
+  5 mm. Both halves were checked against the old bugs (rails 3 m out; 267 coplanar points).
+
+## 0.15.0 — proxy bodies for every vehicle
+
+- **Low-poly proxy models** for all eight vehicles (`models/vehicles/*.glb`, 132-192 tris),
+  assigned to their profiles. Built from each profile's own dimensions: inside the collision
+  box in length and height, out to the track in width with the sills inside the tyres so the
+  wheels sit in open arches, body colour baked from the profile. Glass, lights and trim are
+  separate materials.
+- Physics is untouched - the collider is still the `body_size` box, and every handling number
+  is identical (0-100 in 4.35 s, 120-0 in 52.1 m, 1.26 deg over the bumps).
+- `tools/build_vehicles.py` + `tools/glb.py` regenerate them from the profiles (a small glTF
+  writer; no Blender needed).
+
+## 0.14.0 — highway interchange
+
+- **New world: Highway Interchange.** Six-lane mainline, an arterial 6.4 m above it on a 92 m
+  bridge (5.00 m clearance, solid deck), and a partial cloverleaf - two direct ramps
+  (365 m, 101 m radius, 2.6 % grade) and two loops (395 m, 52 m radius, 3.9 %). Dimensions are
+  AASHTO-ish: 12 ft lanes, 10 ft shoulders, 12 m median, 16 ft 6 in clearance, and a loop
+  radius that suits its 40 km/h design speed. Barriers where a ramp is high enough to fall off.
+- Ramps are built as geometry and then *measured*: length, tightest radius and steepest grade
+  are printed on build and asserted by the tests.
+- Roads use trimesh colliders taken from the same triangles as the visible surface, so a wheel
+  on a banked, climbing ramp is on exactly what it looks like it is on.
+- **Fix (harness):** a per-test time limit was compared against the old fixed one, so a long
+  test reported a false timeout after it had already passed.
+- Tests: `interchange` (geometry, surfaces, clearance, no ramp clashes) and
+  `interchange_drive` (all four ramps driven mainline to arterial).
+
+## 0.13.0 — sound
+
+- **Engine, tyres, wind and impacts.** Files are found by name in `audio/default/` or
+  `audio/<car profile>/` (or `user://audio/…`), with per-vehicle overrides and a fallback;
+  anything missing is silent. See `audio/README.md`. Engine layers named for the rpm they were
+  recorded at are crossfaded and pitched to the current rpm, which comes from a pretend gearbox
+  (`engine_idle_rpm`, `engine_redline_rpm`, `gear_count` per profile). Skid, roll, wind and
+  scrape follow the physics; impacts and bumps pick a random variant with pitch variance.
+- **Impact reporting** on the car (`impacted` signal): the loudest contact per step as a
+  velocity change, so it means the same thing on a quad and a 16 t truck. The tyres never
+  trigger it - they are shape casts, not colliders.
+- **Audio recorded with the take**: the master mix is captured to a .wav beside the take,
+  carried along by Export, and loaded onto the Maya time slider lined up with the animation.
+  Real-time only: a headless run has no audio clock and it does nothing.
+- Tests: `audio_files`, `audio_engine`, `audio_impact` (Godot) and three Maya tests for the
+  sound node's placement, a take without audio, and a missing .wav.
+
 ## 0.12.1 — tall vehicles could not move
 
 - **Fix:** the City Bus and Garbage Truck sat on the road and would not drive. `main.tscn`

@@ -1,12 +1,14 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_i8wr0"]
+[ext_resource type="PackedScene" path="res://models/vehicles/suv_awd.glb" id="1_wrtyu"]
 
 [resource]
 script = ExtResource("1_i8wr0")
 display_name = "SUV AWD"
 description = "2 t, tall and soft: about a third more roll than the sedan (4.3 vs 3.3 deg at full lock), for camera-car moves. COM kept low enough that it cannot roll over on grip (SSF 1.29 g)."
 body_color = Color(0.35, 0.45, 0.3, 1)
+chassis_scene = ExtResource("1_wrtyu")
 mass = 2000.0
 body_size = Vector3(1.45, 1.25, 4.8)
 com_offset = Vector3(0, -0.2, 0)

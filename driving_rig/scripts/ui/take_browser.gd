@@ -269,6 +269,19 @@ func _profiles_line(m: Dictionary) -> String:
 	return ("%s on %s  |  %s" % [car, world, ground]) if car != "" else ground
 
 
+## A take's audio travels with it: the Maya importer looks for a .wav of the same name.
+func _export_audio(src: String, dst: String) -> void:
+	var from := TakeAudioCapture.wav_path_for(src)
+	if not FileAccess.file_exists(from):
+		return
+	var to := TakeAudioCapture.wav_path_for(dst)
+	var bytes := FileAccess.get_file_as_bytes(from)
+	var f := FileAccess.open(to, FileAccess.WRITE)
+	if f:
+		f.store_buffer(bytes)
+		f.close()
+
+
 func _thumb(f: String) -> Texture2D:
 	if _thumbs.has(f):
 		return _thumbs[f]
@@ -382,6 +395,8 @@ func export_to(dst: String) -> void:
 		# keep per-camera channels only if the source take has them (older takes don't)
 		var cams := bool((r["meta"] as Dictionary).get("all_cameras", false))
 		var err := TakeFormat.write_take(dst, r["meta"], r["summary"], r["data"], r["n"], dst.ends_with(".gz"), cams)
+		if err == OK:
+			_export_audio(src, dst)
 		if err != OK:
 			_on_validated.call_deferred(dst, PackedStringArray(["write failed: " + error_string(err)]))
 			return

@@ -1,5 +1,6 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
+[ext_resource type="PackedScene" path="res://models/vehicles/city_bus.glb" id="1_6rsnq"]
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_tvkwc"]
 
 [resource]
@@ -7,6 +8,7 @@ script = ExtResource("1_tvkwc")
 display_name = "City Bus"
 description = "12 t, 12 m long, 3.2 m tall. Slow to gather speed, slower to stop, and it leans hard. Right on the edge of tipping in a hard corner (SSF 0.94 vs 0.95 grip) - be smooth with it."
 body_color = Color(0.2, 0.42, 0.7, 1)
+chassis_scene = ExtResource("1_6rsnq")
 mass = 12000.0
 body_size = Vector3(2.55, 3.1, 12)
 com_offset = Vector3(0, -0.75, 0.2)

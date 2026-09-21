@@ -81,6 +81,17 @@ enum Drive { RWD, FWD, AWD }
 @export_range(0.0, 1.0) var handbrake_rear_grip: float = 0.55
 @export var drag_coefficient: float = 0.42    ## F = c * v^2 (x world air_density_scale)
 
+@export_group("Sound")
+## Folder under res://audio (or user://audio) to take this vehicle's sounds from. Empty = the
+## profile's own file name, e.g. city_bus.tres looks in res://audio/city_bus/ first, then
+## res://audio/default/.
+@export var audio_set: String = ""
+@export var engine_idle_rpm: float = 800.0
+@export var engine_redline_rpm: float = 6500.0
+## Pretend gearbox: how many times the rpm sweeps up and drops back on the way to top speed.
+@export_range(1, 10) var gear_count: int = 5
+@export_range(-24.0, 12.0) var engine_volume_db: float = 0.0
+
 @export_group("Steering wheel")
 ## Steering-wheel turns per road-wheel angle: 15 means 32 deg of lock = 480 deg (1.3 turns).
 @export var steering_ratio: float = 15.0

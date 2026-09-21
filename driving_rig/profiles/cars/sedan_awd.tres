@@ -1,7 +1,9 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_7uemr"]
+[ext_resource type="PackedScene" path="res://models/vehicles/sedan_awd.glb" id="1_47myd"]
 
 [resource]
 script = ExtResource("1_7uemr")
 description = "The reference car: every handling test was tuned and verified on this one. Forgiving AWD, understeer bias, ~3.3 deg of roll per g."
+chassis_scene = ExtResource("1_47myd")

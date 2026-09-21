@@ -1,5 +1,6 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
+[ext_resource type="PackedScene" path="res://models/vehicles/garbage_truck.glb" id="1_jqh4k"]
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_urh1u"]
 
 [resource]
@@ -7,6 +8,7 @@ script = ExtResource("1_urh1u")
 display_name = "Garbage Truck"
 description = "16 t of front-engine refuse truck: short wheelbase for its size, very tall and nose-heavy. Big brakes, no speed, and it will flatten a hydrant. Corner it hard and it goes over - its centre of mass is above what the tyres can hold (SSF 0.89 vs 0.95 grip)."
 body_color = Color(0.25, 0.45, 0.28, 1)
+chassis_scene = ExtResource("1_jqh4k")
 mass = 16000.0
 body_size = Vector3(2.5, 3.4, 9.5)
 com_offset = Vector3(0, -0.8, -0.4)

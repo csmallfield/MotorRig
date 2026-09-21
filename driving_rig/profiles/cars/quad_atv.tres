@@ -1,5 +1,6 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
+[ext_resource type="PackedScene" path="res://models/vehicles/quad_atv.glb" id="1_edkkv"]
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_mpunj"]
 
 [resource]
@@ -7,6 +8,7 @@ script = ExtResource("1_mpunj")
 display_name = "Quad ATV"
 description = "320 kg quad: tiny, light and twitchy, with a short wheelbase and knobbly-tyre grip. Stable enough on the flat, but it is narrow and sits high - trip it on a kerb or land it badly and it will go over."
 body_color = Color(0.85, 0.55, 0.1, 1)
+chassis_scene = ExtResource("1_edkkv")
 mass = 320.0
 body_size = Vector3(0.9, 0.75, 1.9)
 wheelbase = 1.27

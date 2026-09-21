@@ -1,12 +1,14 @@
 [gd_resource type="Resource" script_class="CarProfile" format=3]
 
 [ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_7i1ge"]
+[ext_resource type="PackedScene" path="res://models/vehicles/limo.glb" id="1_oedkv"]
 
 [resource]
 script = ExtResource("1_7i1ge")
 display_name = "Stretch Limo"
 description = "8.5 m, 2.6 t, 6 m wheelbase: enormous turning circle, lazy weight transfer, and it will scrape over anything sharp. Rear-drive."
 body_color = Color(0.08, 0.08, 0.09, 1)
+chassis_scene = ExtResource("1_oedkv")
 mass = 2600.0
 body_size = Vector3(2, 1.45, 8.5)
 com_offset = Vector3(0, -0.15, 0.3)

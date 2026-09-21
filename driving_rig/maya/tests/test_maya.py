@@ -720,6 +720,49 @@ class MayaImport(unittest.TestCase):
         self.assertEqual(self.cmds.listRelatives(grp, children=True) or [], [])
         self.assertIn("Nothing slid", self.cmds.getAttr(grp + ".drvLastCheck"))
 
+    # --- take audio ----------------------------------------------------------
+
+    def _take_with_audio(self, lead_s=3.0):
+        """Copy the fixture take next to a dummy .wav and point its meta at it."""
+        import gzip, json, shutil, struct, tempfile
+        d = tempfile.mkdtemp()
+        take = os.path.join(d, "take_0009.json.gz")
+        root = take_io.read_root(CAMS)
+        root["meta"]["audio"] = {"file": "take_0009.wav", "mix_rate": 44100,
+                                 "starts_before_first_sample_s": lead_s}
+        with gzip.open(take, "wt", encoding="utf-8") as f:
+            json.dump(root, f)
+        wav = os.path.join(d, "take_0009.wav")
+        pcm = b"\x00\x00" * 1000
+        with open(wav, "wb") as f:
+            f.write(b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt " +
+                    struct.pack("<IHHIIHH", 16, 1, 1, 44100, 88200, 2, 16) +
+                    b"data" + struct.pack("<I", len(pcm)) + pcm)
+        return take, wav
+
+    def test_take_audio_lines_up_with_the_animation(self):
+        c = self.cmds
+        take, wav = self._take_with_audio(lead_s=3.0)
+        root = self.importer.import_take(take, fps=24, in_frame=1001, verbose=False)
+        node = "%s:take_audio" % self._ns(root)
+        self.assertTrue(c.objExists(node))
+        # the wav starts on the countdown, 3 s (= 72 frames at 24 fps) before the first frame
+        b = bake.bake(take_io.load(take), fps=24, in_frame=1001)
+        self.assertAlmostEqual(c.getAttr(node + ".offset"), b.frames[0] - 72.0, places=3)
+        self.assertEqual(c.getAttr(root + ".drvAudio"), wav)
+
+    def test_take_without_audio_is_fine(self):
+        root = self.importer.import_take(CAMS, fps=24, in_frame=1001, verbose=False)
+        self.assertFalse(self.cmds.objExists("%s:take_audio" % self._ns(root)))
+        self.assertFalse(self.cmds.attributeQuery("drvAudio", node=root, exists=True))
+
+    def test_missing_wav_does_not_stop_the_import(self):
+        take, wav = self._take_with_audio()
+        os.remove(wav)                       # meta says there is audio; the file is gone
+        root = self.importer.import_take(take, fps=24, in_frame=1001, verbose=False)
+        self.assertTrue(self.cmds.objExists("%s:chassis" % self._ns(root)))
+        self.assertFalse(self.cmds.objExists("%s:take_audio" % self._ns(root)))
+
     # --- housekeeping ------------------------------------------------------
 
     def test_curves_live_in_namespace_and_delete_cleans_up(self):

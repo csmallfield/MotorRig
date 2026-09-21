@@ -17,6 +17,9 @@ extends RigidBody3D
 
 signal teleported
 signal gear_changed(reversing: bool)
+## Something was hit. `strength` is the impulse divided by the car's mass, so it reads as the
+## speed change in m/s and means the same thing on a quad and on a garbage truck.
+signal impacted(strength: float, position: Vector3)
 
 enum Drive { RWD, FWD, AWD }
 
@@ -104,6 +107,14 @@ var steering_wheel_offset: Vector3 = Vector3(0.0, -0.28, -0.5)
 var steering_column_tilt_deg: float = 20.0
 ## Steering-wheel rotation, rad (+ = counter-clockwise as the driver sees it = turning left).
 var steering_wheel_angle: float = 0.0
+var audio_set: String = ""
+var engine_idle_rpm: float = 800.0
+var engine_redline_rpm: float = 6500.0
+var gear_count: int = 5
+var engine_volume_db: float = 0.0
+## Impulses below this (m/s of velocity change) are the tyres doing their job, not a collision.
+var impact_threshold: float = 0.35
+var audio: CarAudio
 var _steering_wheel: Node3D
 var body_color: Color = Color(0.86, 0.42, 0.10)
 
@@ -338,6 +349,14 @@ func _build_body() -> void:
 		driver_cam.position = driver_eye
 	_steering_wheel = build_steering_wheel(self, driver_eye, steering_wheel_offset, steering_column_tilt_deg,
 			steering_wheel_radius, wheel_material, accent_material)
+	# contact reports drive the impact sounds; the suspension does its own casting
+	contact_monitor = true
+	max_contacts_reported = 6
+	audio = CarAudio.new()
+	audio.name = "CarAudio"
+	add_child(audio)
+	audio.setup(self)
+	print("%s  %s" % [active_profile.display_name, audio.report])   # confirms what was found
 
 
 func _build_chassis_model() -> void:
@@ -657,6 +676,22 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.angular_velocity = Vector3.ZERO
 		_just_reset = true
 		teleported.emit.call_deferred()
+		return
+	_report_impacts(state)
+
+
+## Loudest contact this step, as a velocity change. The wheels never report here (they are
+## shape casts, not colliders), so anything that does is the body hitting something.
+func _report_impacts(state: PhysicsDirectBodyState3D) -> void:
+	var best := 0.0
+	var at := Vector3.ZERO
+	for i in state.get_contact_count():
+		var v: float = state.get_contact_impulse(i).length() / mass
+		if v > best:
+			best = v
+			at = state.get_contact_collider_position(i)
+	if best >= impact_threshold:
+		impacted.emit.call_deferred(best, at)
 
 
 ## Cast fractions come back quantized (~1/512 of the cast length under Jolt), which turns

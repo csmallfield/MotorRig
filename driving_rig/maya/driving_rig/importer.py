@@ -14,7 +14,7 @@ import json
 import math
 import os
 
-from maya import cmds
+from maya import cmds, mel
 
 import maya.api.OpenMaya as om
 
@@ -35,7 +35,7 @@ def take_stem(path):
 
 def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_range=True,
                 camera=True, contacts=True, solve=True, all_cameras=True, steering_wheel=True,
-                world_scale=None, verbose=True):
+                world_scale=None, audio=True, verbose=True):
     """Build a rig for the take at `path` and key it. Returns the rig root node.
     world_scale: set DrivingRig_world.worldScale (None = leave it as it is)."""
     take = take_io.load(path)
@@ -112,6 +112,8 @@ def import_take(path, fps=24.0, in_frame=1001, name=None, set_fps=True, set_rang
             cmds.playbackOptions(minTime=frames[0], maxTime=frames[-1],
                                  animationStartTime=frames[0], animationEndTime=frames[-1])
         root = put_in_world(root, world_scale)
+        if audio:
+            _import_audio(path, take.meta, root, ns, frames[0], rate)
 
     report = _format_report(name, b.spin_report, b.radius_warn)
     warn = _ground_mismatch(str(take.meta.get("collision_source", "")), SCENE_ATTR)
@@ -320,6 +322,24 @@ def delete_rig(root=None):
             cmds.namespace(removeNamespace=":" + bns, deleteNamespaceContent=True)
     cmds.namespace(removeNamespace=":" + ns, deleteNamespaceContent=True)
     return True
+
+
+def _import_audio(take_path, meta, root, ns, first_frame, rate):
+    """Bring in the .wav the rig captured beside the take, placed so it lines up with the
+    animation. The file starts on the countdown, before the take's first frame, so it is
+    offset back by however long that was."""
+    info = meta.get("audio") or {}
+    wav = os.path.join(os.path.dirname(take_path), info.get("file", "")) if info else ""
+    if not (wav and os.path.isfile(wav)):
+        return None
+    lead = float(info.get("starts_before_first_sample_s", 0.0)) * rate
+    node = cmds.sound(file=wav, name="%s:take_audio" % ns, offset=first_frame - lead)
+    add_attr(root, "drvAudio", wav, "string")
+    try:                       # show it on the time slider; harmless if there is no UI
+        cmds.timeControl(mel.eval("$tmpVar=$gPlayBackSlider"), edit=True, sound=node, displaySound=True)
+    except Exception:
+        pass
+    return node
 
 
 PROXY_GEO = ["body_geo", "nose_geo", "steering_rim_geo", "steering_spoke_geo", "steering_marker_geo"] + \

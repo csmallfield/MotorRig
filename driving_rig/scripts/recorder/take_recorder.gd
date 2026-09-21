@@ -35,6 +35,9 @@ const W_STRIDE: int = TakeFormat.W_STRIDE
 ## Record all nine cameras every tick (~2x file size). Off: only the active camera is kept
 ## (camera.*), plus which one was active (camera.active).
 @export var record_all_cameras: bool = true
+## Capture what you heard into a .wav beside the take (real time only - a headless run has no
+## audio clock, and this quietly does nothing).
+@export var record_audio: bool = true
 
 var state: State = State.IDLE
 var tick_hz: int = 240
@@ -54,6 +57,8 @@ var _cap: int = 0
 var _max_ticks: int = 0
 var _tick: int = 0
 var _in_tick: int = -1
+var _audio := TakeAudioCapture.new()
+var _audio_start_tick: int = -1
 var _out_tick: int = -1
 var _countdown_end: int = 0
 var _toggle_requested: bool = false
@@ -108,10 +113,15 @@ func _physics_process(_delta: float) -> void:
 			if toggle and not blocked:
 				_countdown_end = _tick + countdown_seconds * tick_hz
 				_car.reset_locked = true
+				# start on the countdown: the take's handles come out of the ring buffer, and
+				# audio can't be captured retroactively
+				_audio_start_tick = _tick if (record_audio and _audio.start()) else -1
 				_set_state(State.COUNTDOWN)
 		State.COUNTDOWN:
 			if toggle:
 				_car.reset_locked = false
+				_audio.stop_and_discard()
+				_audio_start_tick = -1
 				_set_state(State.IDLE)
 			elif _tick >= _countdown_end:
 				_in_tick = _tick
@@ -238,8 +248,27 @@ func _finalize() -> void:
 		"created": Time.get_datetime_string_from_system(),
 	}
 	meta.merge(_car.build_take_meta())
+	meta.merge(_save_audio(path, start))
 	_thread = Thread.new()
 	_thread.start(_write_take.bind(path, meta, data, n))
+
+
+## Write the captured audio beside the take. The file starts before the take's first sample
+## (it began on the countdown), and Maya needs to know by how much to line it up.
+func _save_audio(take_path: String, first_tick: int) -> Dictionary:
+	if not _audio.recording:
+		return {}
+	var wav := TakeAudioCapture.wav_path_for(take_path)
+	var lead := float(first_tick - _audio_start_tick) / tick_hz
+	var err := _audio.stop_and_save(wav)
+	if err != "":
+		push_warning("Take audio not saved: %s" % err)
+		return {}
+	return {"audio": {
+		"file": wav.get_file(),
+		"mix_rate": AudioServer.get_mix_rate(),
+		"starts_before_first_sample_s": lead,   # + = the wav begins this long before frame 1
+	}}
 
 
 func _next_take_number() -> int:

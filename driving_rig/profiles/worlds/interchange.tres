@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_wjg7j"]
+
+[resource]
+script = ExtResource("1_wjg7j")
+display_name = "Highway Interchange"
+description = "A grade-separated interchange at real highway dimensions: six-lane mainline, an arterial crossing 6.4 m above it on a bridge, and six ramps - four diamond ramps plus two loops for the left turns. Barriers where a ramp is high enough to fall off."
+source = 3

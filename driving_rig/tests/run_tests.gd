@@ -18,7 +18,8 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
 	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
 	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt",
-	"mode_drivable", "reverse_gear", "watch_mode", "layout"]
+	"mode_drivable", "reverse_gear", "watch_mode", "layout", "audio_files", "audio_engine", "audio_impact",
+	"interchange", "interchange_drive", "interchange_finish", "vehicle_models"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -94,8 +95,10 @@ func _physics_process(_d: float) -> bool:
 		fn = "_t_mode"
 	elif cur.begins_with("drivable:"):
 		fn = "_t_drivable"
-	if call(fn) or t > 240 * 60:
-		if t > 240 * 60:
+	# most tests are done inside a minute of sim; driving four ramps end to end is not
+	var cap := 240 * (200 if cur == "interchange_drive" else 60)
+	if call(fn) or t > cap:
+		if t > cap:                      # the cap is per test, so the report must use it too
 			_result(false, "timeout")
 		main.queue_free()
 		main = null
@@ -120,6 +123,8 @@ func _start(test_name: String) -> void:
 		mode_path = "res://profiles/modes/loose.tres"
 	if test_name == "mode_stunt":
 		mode_path = "res://profiles/modes/stunt.tres"
+	if test_name.begins_with("interchange"):
+		world = load("res://profiles/worlds/interchange.tres")
 	if test_name.begins_with("drivable:"):
 		mode_path = test_name.substr(9)
 	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick") \
@@ -1316,3 +1321,353 @@ func _t_car_spawn() -> bool:
 			car.rest_height(), bottom - ground, kmh()])
 		return true
 	return false
+
+
+# === sound ===
+
+## Files are picked up from disk by name, per vehicle, with a fallback - and anything missing
+## is silent rather than an error.
+func _t_audio_files() -> bool:
+	var dir := "user://audio/default"
+	var vdir := "user://audio/sedan_awd"
+	DirAccess.make_dir_recursive_absolute(dir)
+	DirAccess.make_dir_recursive_absolute(vdir)
+	for f in ["skid.wav", "tyre_roll.wav", "engine_0800.wav", "engine_4000.wav",
+			"impact_01.wav", "impact_02.wav", "impact_03.wav"]:
+		_write_wav(dir.path_join(f), 0.05)
+	_write_wav(vdir.path_join("engine_1200.wav"), 0.05)     # this vehicle's own engine
+	var lib := AudioLibrary.new("sedan_awd")
+	var layers := lib.engine_layers()
+	var vehicle_wins: bool = layers.size() == 1 and is_equal_approx(layers[0]["rpm"], 1200.0)
+	var fallback := AudioLibrary.new("no_such_vehicle")
+	var shared := fallback.engine_layers()
+	var sorted_ok: bool = shared.size() == 2 and shared[0]["rpm"] < shared[1]["rpm"]
+	var got_skid: bool = fallback.one("skid") != null
+	var got_hits: bool = fallback.variants("impact").size() == 3
+	var missing_is_quiet: bool = fallback.one("no_such_sound") == null and "no_such_sound" in fallback.missing
+	var looped: bool = AudioLibrary.set_looping(fallback.one("skid")) is AudioStreamWAV
+	for d in [dir, vdir]:
+		var da := DirAccess.open(d)
+		for f in da.get_files():
+			da.remove(f)
+	_result(vehicle_wins and sorted_ok and got_skid and got_hits and missing_is_quiet and looped,
+		"per-vehicle folder wins (%s) · shared folder found %d engine layers in rpm order, skid, %d impacts · a missing sound is silent, not an error" % [
+		vehicle_wins, shared.size(), fallback.variants("impact").size()])
+	return true
+
+
+func _write_wav(path: String, seconds: float) -> void:
+	var rate := 22050
+	var w := AudioStreamWAV.new()
+	w.format = AudioStreamWAV.FORMAT_16_BITS
+	w.mix_rate = rate
+	var n := int(rate * seconds)
+	var d := PackedByteArray()
+	d.resize(n * 2)
+	for i in n:
+		var v := int(sin(TAU * 220.0 * i / rate) * 8000.0)
+		d.encode_s16(i * 2, v)
+	w.data = d
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_buffer(_wav_bytes(d, rate))
+	f.close()
+
+
+func _wav_bytes(pcm: PackedByteArray, rate: int) -> PackedByteArray:
+	var out := PackedByteArray()
+	out.append_array("RIFF".to_ascii_buffer())
+	var head := PackedByteArray()
+	head.resize(4)
+	head.encode_u32(0, 36 + pcm.size())
+	out.append_array(head)
+	out.append_array("WAVEfmt ".to_ascii_buffer())
+	var fmt := PackedByteArray()
+	fmt.resize(20)
+	fmt.encode_u32(0, 16)
+	fmt.encode_u16(4, 1)
+	fmt.encode_u16(6, 1)
+	fmt.encode_u32(8, rate)
+	fmt.encode_u32(12, rate * 2)
+	fmt.encode_u16(16, 2)
+	fmt.encode_u16(18, 16)
+	out.append_array(fmt)
+	out.append_array("data".to_ascii_buffer())
+	var dl := PackedByteArray()
+	dl.resize(4)
+	dl.encode_u32(0, pcm.size())
+	out.append_array(dl)
+	out.append_array(pcm)
+	return out
+
+
+## The pretend gearbox: rpm climbs within a gear and drops at the change, stays inside
+## idle..redline, and wheelspin lifts it. Engine layers pitch toward the rpm they were
+## recorded at.
+func _t_audio_engine() -> bool:
+	if t == 1:
+		place(Vector3(300, spawn_y(), 300), PI * 0.25)
+		st["rpm"] = []
+		st["shifts"] = 0
+	drive(1.0, 0.0, 0.0)
+	if t > 240 and t % 12 == 0 and kmh() < car.top_speed_kmh * 0.98:
+		var rpm: float = car.audio._target_rpm(absf(car.forward_speed))
+		var prev: float = st["rpm"][-1] if not st["rpm"].is_empty() else rpm
+		if rpm < prev - 200.0:
+			st["shifts"] += 1
+		st["rpm"].append(rpm)
+		st["min"] = minf(st.get("min", 9e9), rpm)
+		st["max"] = maxf(st.get("max", 0.0), rpm)
+	if t == 240 * 14:
+		var idle: float = car.engine_idle_rpm
+		var red: float = car.engine_redline_rpm
+		var in_range: bool = st.get("min", 0.0) >= idle - 1.0 and st.get("max", 0.0) <= red + 1.0
+		var shifted: bool = st["shifts"] >= 2                      # several gear changes on the way up
+		var climbs: bool = st["rpm"].size() > 10 and st["rpm"][-1] > st["rpm"][0]
+		_result(in_range and shifted and climbs, "rpm stayed inside %.0f-%.0f (saw %.0f-%.0f) · %d gear changes accelerating to %.0f km/h" % [
+			idle, red, st.get("min", 0.0), st.get("max", 0.0), st["shifts"], kmh()])
+		return true
+	return false
+
+
+## Hitting something reports an impact, scaled by how hard - and the tyres doing their job
+## never report one.
+func _t_audio_impact() -> bool:
+	if t == 1:
+		st["hits"] = []
+		car.impacted.connect(func(strength: float, _p: Vector3) -> void: st["hits"].append(strength))
+		place(Vector3(300, spawn_y(), 300), PI * 0.25)
+	if t < 240 * 6:
+		drive(1.0, 0.0, 0.35 * sin(sec()))     # drive hard, corner, bounce: no collisions
+		if t == 240 * 6 - 1:
+			st["driving_hits"] = st["hits"].size()
+		return false
+	if t == 240 * 6:
+		# put a wall in front of the car and drive into it
+		var wall := StaticBody3D.new()
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(40, 8, 2)
+		shape.shape = box
+		wall.add_child(shape)
+		wall.collision_layer = DrivingCar.LAYER_WORLD
+		main.add_child(wall)
+		wall.global_position = car.global_position - car.global_basis.z * 60.0 + Vector3.UP * 3.0
+		st["hits"] = []
+	drive(1.0, 0.0, 0.0)
+	if t == 240 * 12:
+		var hits: Array = st["hits"]
+		var hardest := 0.0
+		for h: float in hits:
+			hardest = maxf(hardest, h)
+		var ok: bool = st.get("driving_hits", 99) == 0 and hits.size() > 0 and hardest > 2.0
+		_result(ok, "%d impacts while driving hard (want 0) · hit a wall: %d contacts reported, hardest %.1f m/s" % [
+			st.get("driving_hits", -1), hits.size(), hardest])
+		return true
+	return false
+
+
+# === highway interchange ===
+
+func _interchange() -> InterchangeBuilder:
+	return (main.get_node("Terrain") as Terrain).interchange
+
+
+## The geometry has to be buildable in the real world: ramp radii and grades within highway
+## standards, the surface actually present along every path, the bridge giving its clearance,
+## and no two ramps wanting the same ground at the same height.
+func _t_interchange() -> bool:
+	if t < 3:
+		return false
+	var b := _interchange()
+	var space := car.get_world_3d().direct_space_state
+	var tight := INF
+	var steep := 0.0
+	var shortest := INF
+	var surface_err := 0.0
+	var missing := 0
+	for r: Dictionary in b.ramps:
+		tight = minf(tight, r["min_radius"])
+		steep = maxf(steep, r["max_grade"])
+		shortest = minf(shortest, r["length"])
+		# interior points only: the first and last sit exactly on the ribbon's open end, where a
+		# ray can slip past the edge
+		var n_pts: int = (r["points"] as PackedVector3Array).size()
+		for i in range(1, n_pts - 1, 5):
+			var p: Vector3 = r["points"][i]
+			var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 2.5, p - Vector3.UP * 5.0,
+					DrivingCar.LAYER_WORLD)
+			var hit := space.intersect_ray(q)
+			if hit:
+				surface_err = maxf(surface_err, absf((hit["position"] as Vector3).y - p.y))
+			else:
+				missing += 1
+	# clearance: upward off the mainline onto the underside of the deck
+	var up := PhysicsRayQueryParameters3D.create(Vector3(13.6, 0.2, 0.0), Vector3(13.6, 14.0, 0.0),
+			DrivingCar.LAYER_WORLD)
+	var deck := space.intersect_ray(up)
+	var clearance: float = (deck["position"] as Vector3).y if deck else 0.0
+	# no two ramps within 10 m of each other at the same height
+	var closest := INF
+	for i in b.ramps.size():
+		for j in range(i + 1, b.ramps.size()):
+			var pa: PackedVector3Array = b.ramps[i]["points"]
+			var pb: PackedVector3Array = b.ramps[j]["points"]
+			for a in range(0, pa.size(), 4):
+				for c in range(0, pb.size(), 4):
+					if absf(pa[a].y - pb[c].y) <= 4.5:
+						closest = minf(closest, Vector2(pa[a].x - pb[c].x, pa[a].z - pb[c].z).length())
+	var ok: bool = b.ramps.size() == 4 and tight >= 43.0 and steep <= 0.06 and shortest >= 200.0 \
+			and surface_err < 0.05 and missing == 0 and clearance >= 4.99 and closest > 10.0
+	_result(ok, "%d ramps · tightest radius %.0f m (40 km/h needs 43) · steepest grade %.1f%% · shortest %.0f m · surface within %.3f m of every path, %d gaps · bridge clearance %.2f m · closest two ramps at the same height %.0f m" % [
+		b.ramps.size(), tight, steep * 100.0, shortest, surface_err, missing, clearance, closest])
+	return true
+
+
+## And it has to be drivable: follow each ramp's centreline from the mainline up to the
+## arterial, including the loop that passes under the bridge on its way round.
+func _t_interchange_drive() -> bool:
+	if t < 3:
+		return false
+	var b := _interchange()
+	if not st.has("idx"):
+		st["idx"] = 0
+		st["worst_off"] = 0.0
+		st["worst_pct"] = 100
+		st["done"] = 0
+		_ramp_start(b)
+		return false
+	var pts: PackedVector3Array = b.ramps[st["idx"]]["points"]
+	var best: int = st["seg"]
+	for i in range(st["seg"], mini(st["seg"] + 40, pts.size())):
+		if car.global_position.distance_to(pts[i]) < car.global_position.distance_to(pts[best]):
+			best = i
+	st["seg"] = best
+	var target: Vector3 = pts[mini(best + 12, pts.size() - 1)]
+	var local := car.global_basis.inverse() * (target - car.global_position)
+	drive(clampf((55.0 - kmh()) * 0.15, 0.0, 1.0), 0.0, clampf(local.x / maxf(absf(local.z), 1.0) * 1.6, -1.0, 1.0))
+	st["off"] = maxf(st["off"], Vector2(car.global_position.x - pts[best].x, car.global_position.z - pts[best].z).length())
+	if best >= pts.size() - 20 or t - int(st["t0"]) > 240 * 40:
+		var pct := int(100.0 * best / (pts.size() - 1))
+		st["worst_pct"] = mini(st["worst_pct"], pct)
+		st["worst_off"] = maxf(st["worst_off"], st["off"])
+		st["climbed"] = maxf(st.get("climbed", 0.0), car.global_position.y)
+		st["idx"] += 1
+		if st["idx"] >= b.ramps.size():
+			var ok: bool = st["worst_pct"] >= 80 and st["worst_off"] < 6.0 and st.get("climbed", 0.0) > 6.0
+			_result(ok, "all %d ramps driven from the mainline to the arterial: %d%% of the shortest run, never more than %.1f m off the centreline, climbing to %.1f m" % [
+				b.ramps.size(), st["worst_pct"], st["worst_off"], st.get("climbed", 0.0)])
+			return true
+		_ramp_start(b)
+	return false
+
+
+func _ramp_start(b: InterchangeBuilder) -> void:
+	var pts: PackedVector3Array = b.ramps[st["idx"]]["points"]
+	var fwd := (pts[3] - pts[0]).normalized()
+	place(pts[0] + Vector3.UP * spawn_y(), atan2(-fwd.x, -fwd.z))
+	st["seg"] = 0
+	st["off"] = 0.0
+	st["t0"] = t
+
+
+## The two things 0.14.0 got wrong, which the geometry and drive tests could not see:
+##   * rails drawn as axis-aligned boxes, so on any ramp not heading north-south they sat
+##     crossways to the road (with the collider pointing a different way from what you saw)
+##   * roads laid at exactly the height of the ground and of each other - z-fighting everywhere
+func _t_interchange_finish() -> bool:
+	if t < 3:
+		return false
+	var b := _interchange()
+	var space := car.get_world_3d().direct_space_state
+	var want := InterchangeBuilder.RAMP_W * 0.5 + 0.05
+	var rail_err := 0.0
+	var rail_checks := 0
+	var rail_misses := 0
+	for r: Dictionary in b.ramps:
+		var pts: PackedVector3Array = r["points"]
+		for i in range(2, pts.size() - 2, 4):
+			var p := pts[i]
+			if p.y < 1.5 or (absf(p.z) < 16.0 and p.y > 5.4):
+				continue                                    # at grade, or where you merge
+			var fwd := pts[i + 1] - pts[i - 1]
+			fwd.y = 0.0
+			var out := fwd.normalized().cross(Vector3.UP)
+			for side: float in [-1.0, 1.0]:
+				var from := p + Vector3.UP * 0.5
+				var q := PhysicsRayQueryParameters3D.create(from, from + out * side * 8.0, DrivingCar.LAYER_WORLD)
+				var hit := space.intersect_ray(q)
+				rail_checks += 1
+				if hit:
+					rail_err = maxf(rail_err, absf(from.distance_to(hit["position"]) - want))
+				else:
+					rail_misses += 1
+	# coplanar surfaces: first hit, then everything else within 5 mm of it
+	var coplanar := 0
+	var samples := 0
+	for x in range(-480, 481, 12):
+		for z in range(-680, 681, 12):
+			var q1 := PhysicsRayQueryParameters3D.create(Vector3(x, 30, z), Vector3(x, -5, z), DrivingCar.LAYER_WORLD)
+			var a := space.intersect_ray(q1)
+			if not a:
+				continue
+			samples += 1
+			var y1: float = (a["position"] as Vector3).y
+			var q2 := PhysicsRayQueryParameters3D.create(Vector3(x, y1 + 0.01, z), Vector3(x, y1 - 0.02, z),
+					DrivingCar.LAYER_WORLD)
+			q2.exclude = [a["rid"]]
+			q2.hit_from_inside = true
+			var c := space.intersect_ray(q2)
+			if c and absf((c["position"] as Vector3).y - y1) < 0.005:
+				coplanar += 1
+	var ok: bool = rail_checks > 80 and rail_misses == 0 and rail_err < 0.02 and coplanar == 0
+	_result(ok, "rails: %d sideways checks along the raised ramps, all hit %.2f m out (worst %.3f m off), %d misses · %d of %d points have two surfaces within 5 mm (z-fighting)" % [
+		rail_checks, want, rail_err, rail_misses, coplanar, samples])
+	return true
+
+
+## Every vehicle body faces outward. 0.15.0 shipped with every triangle inside-out and neither
+## a render nor a winding check caught it: the mesh was *consistently* inside-out, winding and
+## normals agreeing with each other, both pointing in. What gives it away is signed volume -
+## every closed shell encloses a positive volume under one winding convention and a negative
+## one under the other. Each material surface here is built from closed solids, so each must
+## come out with the same sign as a box Godot made itself.
+func _t_vehicle_models() -> bool:
+	var outward := signf(_signed_volume(BoxMesh.new().get_mesh_arrays()))
+	var report := PackedStringArray()
+	var bad := 0
+	var checked := 0
+	var tris := 0
+	var da := DirAccess.open("res://profiles/cars")
+	for f in da.get_files():
+		if not f.ends_with(".tres"):
+			continue
+		var prof: CarProfile = load("res://profiles/cars/" + f)
+		if prof.chassis_scene == null:
+			report.append("%s: no model" % f.get_basename())
+			bad += 1
+			continue
+		var inst := prof.chassis_scene.instantiate()
+		for mi in inst.find_children("*", "MeshInstance3D", true, false):
+			var mesh: Mesh = (mi as MeshInstance3D).mesh
+			for sfc in mesh.get_surface_count():
+				var arr := mesh.surface_get_arrays(sfc)
+				tris += (arr[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+				var vol := _signed_volume(arr)
+				checked += 1
+				if signf(vol) != outward:
+					bad += 1
+					report.append("%s surface %d inside-out (%.2f m3)" % [f.get_basename(), sfc, vol])
+		inst.free()
+	_result(bad == 0 and checked >= 16, "%d surfaces across 8 bodies (%d triangles), every one enclosing a positive volume like Godot's own box%s" % [
+		checked, tris, ("" if report.is_empty() else " - " + "; ".join(report.slice(0, 4)))])
+	return true
+
+
+## Volume enclosed by a closed triangle mesh, signed by its winding (divergence theorem).
+func _signed_volume(arr: Array) -> float:
+	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+	var vol := 0.0
+	for t in range(0, idx.size(), 3):
+		vol += v[idx[t]].dot(v[idx[t + 1]].cross(v[idx[t + 2]])) / 6.0
+	return vol
