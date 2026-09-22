@@ -19,7 +19,8 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
 	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt",
 	"mode_drivable", "reverse_gear", "watch_mode", "layout", "audio_files", "audio_engine", "audio_impact",
-	"interchange", "interchange_drive", "interchange_finish", "vehicle_models"]
+	"interchange", "interchange_drive", "interchange_finish", "vehicle_models",
+	"playground", "playground_hill", "playground_landings", "long_travel"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -96,7 +97,7 @@ func _physics_process(_d: float) -> bool:
 	elif cur.begins_with("drivable:"):
 		fn = "_t_drivable"
 	# most tests are done inside a minute of sim; driving four ramps end to end is not
-	var cap := 240 * (200 if cur == "interchange_drive" else 60)
+	var cap := 240 * (200 if cur in ["interchange_drive", "playground_hill", "playground_landings", "long_travel"] else 60)
 	if call(fn) or t > cap:
 		if t > cap:                      # the cap is per test, so the report must use it too
 			_result(false, "timeout")
@@ -125,6 +126,8 @@ func _start(test_name: String) -> void:
 		mode_path = "res://profiles/modes/stunt.tres"
 	if test_name.begins_with("interchange"):
 		world = load("res://profiles/worlds/interchange.tres")
+	if test_name.begins_with("playground"):
+		world = load("res://profiles/worlds/playground.tres")
 	if test_name.begins_with("drivable:"):
 		mode_path = test_name.substr(9)
 	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick") \
@@ -1671,3 +1674,186 @@ func _signed_volume(arr: Array) -> float:
 	for t in range(0, idx.size(), 3):
 		vol += v[idx[t]].dot(v[idx[t + 1]].cross(v[idx[t + 2]])) / 6.0
 	return vol
+
+
+# === vehicle playground ===
+
+func _pg() -> Terrain:
+	return main.get_node("Terrain") as Terrain
+
+
+## The world itself: the hill is as tall as designed, every start point sits on the ground,
+## each feature is solid where it should be, the crates are loose, and nothing z-fights.
+func _t_playground() -> bool:
+	if t < 3:
+		return false
+	var terrain := _pg()
+	var space := car.get_world_3d().direct_space_state
+	var ground_at := func(x: float, z: float) -> float:
+		var q := PhysicsRayQueryParameters3D.create(Vector3(x, 80, z), Vector3(x, -30, z), DrivingCar.LAYER_WORLD)
+		var h := space.intersect_ray(q)
+		return (h["position"] as Vector3).y if h else -999.0
+	var summit: float = ground_at.call(-305.0, -84.0)
+	var spawns_ok := 0
+	for sp: Dictionary in terrain.spawn_points:
+		var o: Vector3 = (sp["transform"] as Transform3D).origin
+		if absf(float(ground_at.call(o.x, o.z)) - o.y) < 0.3:
+			spawns_ok += 1
+	var table: float = ground_at.call(-60.0, -84.0)
+	var pit: float = ground_at.call(-75.0 + 60.0, -84.0)
+	var crates := 0
+	for n in terrain.find_children("*", "RigidBody3D", true, false):
+		crates += 1
+	var coplanar := 0
+	for x in range(-320, 321, 10):
+		for z in range(-320, 321, 10):
+			var q1 := PhysicsRayQueryParameters3D.create(Vector3(x, 80, z), Vector3(x, -30, z), DrivingCar.LAYER_WORLD)
+			var a := space.intersect_ray(q1)
+			if not a or a["collider"] is RigidBody3D:
+				continue
+			var y1: float = (a["position"] as Vector3).y
+			var q2 := PhysicsRayQueryParameters3D.create(Vector3(x, y1 + 0.01, z), Vector3(x, y1 - 0.02, z), DrivingCar.LAYER_WORLD)
+			q2.exclude = [a["rid"]]
+			q2.hit_from_inside = true
+			var c := space.intersect_ray(q2)
+			if c and absf((c["position"] as Vector3).y - y1) < 0.005:
+				coplanar += 1
+	var ok: bool = summit > 40.0 and spawns_ok == terrain.spawn_points.size() and terrain.spawn_points.size() >= 5 \
+			and absf(table - 3.5) < 0.1 and pit < -3.0 and crates >= 15 and coplanar == 0
+	_result(ok, "hill top %.1f m · %d/%d start points on the ground · tabletop %.2f m, landing pit %.1f m · %d loose crates · %d coplanar surfaces" % [
+		summit, spawns_ok, terrain.spawn_points.size(), table, pit, crates, coplanar])
+	return true
+
+
+## The point of the hill: the slowest, heaviest vehicles build speed on it and fly off the kicker.
+func _t_playground_hill() -> bool:
+	return _pg_runs([["garbage_truck", 1], ["city_bus", 1]], func(r: Dictionary) -> bool:
+		return r["kmh"] > 90.0 and r["air"] > 0.5 and r["upright"],
+		"%s: %.0f km/h at the kicker, %.2f s in the air, landed upright %s")
+
+
+## The landings follow the flight path: cars on the tabletop and the monster truck on the mega
+## jump come down nearly parallel to the slope, not into it.
+func _t_playground_landings() -> bool:
+	return _pg_runs([["sedan_awd", 1], ["dune_buggy", 1], ["monster_truck", 2]], func(r: Dictionary) -> bool:
+		return r["into"] < 3.0 and r["upright"],
+		"%s: %.0f km/h, %.2f s in the air, landed at %.1f m/s into the surface")
+
+
+## Coast down from a hill-top start and off the jump: throttle only to get off the summit,
+## steering to hold the lane. Returns true when every run is done and reported.
+func _pg_runs(runs: Array, check: Callable, fmt: String) -> bool:
+	if not st.has("i"):
+		st["i"] = 0
+		st["lines"] = PackedStringArray()
+		st["all_ok"] = true
+		_pg_start(runs[0])
+		return false
+	var r: Dictionary = st["run"]
+	if st.has("pending_spawn"):
+		if t - int(r["t0"]) < 3:
+			return false
+		car._spawn_index = int(st["pending_spawn"]) - 1          # next_spawn() steps forward one
+		car.next_spawn()
+		r["lane_z"] = (_pg().spawn_points[int(st["pending_spawn"])]["transform"] as Transform3D).origin.z
+		st.erase("pending_spawn")
+		return false
+	var p := car.global_position
+	drive(1.0 if p.x < -280.0 else 0.0, 0.0, clampf((car.global_basis.inverse() *
+			(Vector3(p.x + 30.0, 0.0, r["lane_z"]) - p)).x / 30.0 * 1.5, -1.0, 1.0))
+	if p.x > -100.0 and p.x < -95.0:
+		r["kmh"] = kmh()
+	var off := air_count()
+	r["cur_air"] = r["cur_air"] + 1 if off == 4 else 0
+	r["air"] = maxf(r["air"], r["cur_air"] / 240.0)
+	if r["cur_air"] == 0 and r["air"] > 0.3 and not r.has("into"):
+		var n := Vector3.UP
+		for i in 4:
+			if car.wheel_grounded[i]:
+				n = car.wheel_contact_n[i]
+		r["into"] = -car.linear_velocity.dot(n)
+	if p.x > -90.0:
+		r["upright_min"] = minf(r["upright_min"], car.global_basis.y.y)
+	if r.has("into") and t - int(r["t0"]) > 240 * 3 and (p.x > 40.0 or t - int(r["t0"]) > 240 * 30):
+		r["upright"] = r["upright_min"] > 0.5
+		var ok: bool = check.call(r)
+		st["all_ok"] = st["all_ok"] and ok
+		var line := fmt % [r["name"], r["kmh"], r["air"], (r["upright"] if fmt.ends_with("%s") else r["into"])]
+		st["lines"].append(line + ("" if ok else " (FAILED)"))
+		st["i"] += 1
+		if st["i"] >= runs.size():
+			_result(st["all_ok"], " · ".join(st["lines"]))
+			return true
+		_pg_start(runs[st["i"]])
+	elif t - int(r["t0"]) > 240 * 45:
+		st["lines"].append("%s: never landed" % r["name"])
+		_result(false, " · ".join(st["lines"]))
+		return true
+	return false
+
+
+func _pg_start(run: Array) -> void:
+	main.queue_free()
+	main = load("res://scenes/main.tscn").instantiate()
+	main.get_node("Car").profile = load("res://profiles/cars/%s.tres" % run[0])
+	main.get_node("Car").drive_mode = load(REF_MODE)
+	main.get_node("Terrain").profile = load("res://profiles/worlds/playground.tres")
+	main.get_node("Recorder").takes_dir = TAKES_DIR
+	root.add_child(main)
+	car = main.get_node("Car")
+	rec = main.get_node("Recorder")
+	player = main.get_node("TakePlayer")
+	browser = main.get_node("TakeBrowser")
+	car.use_player_input = false
+	st["run"] = {"name": (load("res://profiles/cars/%s.tres" % run[0]) as CarProfile).display_name,
+		"spawn": run[1], "kmh": 0.0, "air": 0.0, "cur_air": 0, "upright_min": 1.0, "t0": t, "lane_z": 0.0,
+		"placed": false}
+	st["pending_spawn"] = run[1]
+
+
+## Long travel is the point of the buggy and the monster truck: dropped level onto flat ground,
+## they take drops that bottom out an ordinary car several times over.
+func _t_long_travel() -> bool:
+	if not st.has("cars"):
+		st["cars"] = [["sedan_awd", 0.25], ["dune_buggy", 1.25], ["monster_truck", 1.75]]
+		st["ci"] = 0
+		st["lines"] = PackedStringArray()
+		st["ok"] = true
+		_drop_start()
+		return false
+	if t - int(st["t0"]) == 3:
+		car._request_reset(Transform3D(Basis.IDENTITY, Vector3(0.0, car.rest_height() + float(st["cars"][st["ci"]][1]), 150.0)))
+	for i in 4:
+		st["comp"] = maxf(st["comp"], car.wheel_compression[i])
+	if t - int(st["t0"]) == 240 * 3:
+		var need: float = st["cars"][st["ci"]][1]
+		var bottomed: bool = st["comp"] > car.susp_max_travel + 0.001
+		# each has to take its drop without reaching the bump stops; the sedan's 0.25 m is its
+		# limit, there for scale against the buggy's 1.25 m and the monster truck's 1.75 m
+		st["ok"] = st["ok"] and not bottomed
+		st["lines"].append("%s from %.2f m: %.0f%% of %.2f m travel%s" % [car.active_profile.display_name, need,
+			100.0 * st["comp"] / car.susp_max_travel, car.susp_max_travel, " (bottomed)" if bottomed else ""])
+		st["ci"] += 1
+		if st["ci"] >= st["cars"].size():
+			_result(st["ok"], " · ".join(st["lines"]))
+			return true
+		_drop_start()
+	return false
+
+
+func _drop_start() -> void:
+	main.queue_free()
+	main = load("res://scenes/main.tscn").instantiate()
+	main.get_node("Car").profile = load("res://profiles/cars/%s.tres" % st["cars"][st["ci"]][0])
+	main.get_node("Car").drive_mode = load(REF_MODE)
+	var w: WorldProfile = (load("res://profiles/worlds/flat_pad.tres") as WorldProfile)
+	main.get_node("Terrain").profile = w
+	main.get_node("Recorder").takes_dir = TAKES_DIR
+	root.add_child(main)
+	car = main.get_node("Car")
+	rec = main.get_node("Recorder")
+	player = main.get_node("TakePlayer")
+	browser = main.get_node("TakeBrowser")
+	car.use_player_input = false
+	st["t0"] = t
+	st["comp"] = 0.0

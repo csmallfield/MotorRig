@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.16.0 — monster truck, dune buggy, vehicle playground
+
+- **Monster Truck** (5.2 t, 1.7 m tyres, 70 cm travel, 700 kW AWD) and **Dune Buggy** (900 kg,
+  50 cm travel, RWD), with proxy models. Suspension sized from static sag and damping ratio for
+  a ~1.1-1.3 Hz ride; the buggy's rear spring is set to its axle load so it sits level.
+  Measured: the buggy takes a 1.5 m drop and the monster truck 2.0 m without bottoming, against
+  0.25 m for the sedan.
+- **Vehicle Playground** world: a 42 m, 20 % hill that brings every vehicle to ~100 km/h by
+  gravity alone; a tabletop and a mega jump at its foot with ski-jump-style landing hills
+  (landing pits and run-outs), each calibrated from measured launches; and an obstacle course
+  - whoops, moguls, kickers, step-up, stairs, logs, rock garden, tunnel, bowl, off-camber
+  strip, slalom and loose crates.
+- **Start points**: D-pad up / F2 cycles the car between a world's named starts (the
+  playground has six). Generic - any world can define them.
+- SurfaceBuilder gained orientation-safe solids (every face points away from its solid's
+  centre), rotated boxes, wedges, logs and an indexed heightfield (110 k vertices for the
+  playground instead of 650 k).
+- Tests: `playground`, `playground_hill`, `playground_landings`, `long_travel`. 94 Godot tests.
+
 ## 0.15.3 — z-fighting on the vehicle bodies
 
 - **Fix:** roofs flickered. The glass came up to the same height as the roof panel over it, so

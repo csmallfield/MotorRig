@@ -24,6 +24,7 @@ RT / LT   throttle / brake   W / S  (↑ / ↓)
 Left stick   steer           A / D  (← / →)
 B   handbrake                Space
 X   reverse gear (at a stop) X
+D-pad up  next start point  F2
 Y   next camera (9 angles)   C     1-9 jump to a camera
 Start   record / stop        R
 LB   take browser            Tab
@@ -44,6 +45,7 @@ func _ready() -> void:
 	_browser = get_node(browser_path) as TakeBrowser
 	_browser.message.connect(func(m: String) -> void: _flash(m, 4.0))
 	_car.gear_changed.connect(func(rev: bool) -> void: _flash("Gear: %s" % ("REVERSE" if rev else "DRIVE"), 1.5))
+	_car.spawn_changed.connect(func(n: String) -> void: _flash("Start: %s" % n, 2.0))
 	var rig := get_node_or_null(^"../ChaseCam") as ChaseCameraRig
 	if rig:
 		rig.camera_changed.connect(func(n: String) -> void: _flash("Camera: %s" % n, 1.5))

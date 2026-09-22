@@ -1,0 +1,43 @@
+[gd_resource type="Resource" script_class="CarProfile" format=3]
+
+[ext_resource type="PackedScene" path="res://models/vehicles/monster_truck.glb" id="1_25nol"]
+[ext_resource type="Script" path="res://scripts/profiles/car_profile.gd" id="1_h5suv"]
+
+[resource]
+script = ExtResource("1_h5suv")
+display_name = "Monster Truck"
+description = "5.2 t on 1.7 m tyres with 70 cm of suspension travel: soft, floaty, and built to land. Huge power, a high centre of mass (SSF 1.13) - it will climb over anything and roll if you land it sideways."
+body_color = Color(0.15, 0.35, 0.8, 1)
+chassis_scene = ExtResource("1_25nol")
+mass = 5200.0
+body_size = Vector3(2.6, 1.3, 5)
+com_offset = Vector3(0, -0.35, 0)
+wheelbase = 3.3
+track_front = 3.1
+track_rear = 3.1
+wheel_radius = 0.84
+wheel_width = 0.9
+hardpoint_height = -0.25
+driver_eye = Vector3(-0.45, 0.45, -0.6)
+susp_rest = 0.85
+susp_max_travel = 0.7
+spring_rate_front = 58000.0
+spring_rate_rear = 58000.0
+damp_bump = 6940.0
+damp_rebound = 9550.0
+arb_front = 30000.0
+arb_rear = 20000.0
+bump_stop_rate = 900000.0
+tire_mu = 1.0
+rear_grip = 1.05
+awd_rear_bias = 0.55
+engine_power_kw = 700.0
+max_drive_force = 52000.0
+top_speed_kmh = 120.0
+brake_force = 60000.0
+drag_coefficient = 2.0
+engine_idle_rpm = 900.0
+engine_redline_rpm = 7200.0
+gear_count = 3
+steering_wheel_offset = Vector3(0, -0.3, -0.45)
+max_steer_deg = 36.0

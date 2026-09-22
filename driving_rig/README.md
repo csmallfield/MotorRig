@@ -1,4 +1,4 @@
-# Driving Rig — v0.15.3
+# Driving Rig — v0.16.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -306,6 +306,13 @@ Shipped profiles — all pass the stability tests below:
 | Stretch Limo | 2.6 t, 8.5 m, 6 m wheelbase, rear-drive | 2.6 deg, 3.8 deg | 1.1 deg |
 | City Bus | 12 t, 12 m, 3.1 m tall — on the edge of tipping (SSF 0.94 vs 0.95) | 2.3 deg, 4.1 deg | 0.9 deg |
 | Garbage Truck | 16 t, nose-heavy, **goes over in a hard corner** (SSF 0.89 vs 0.95) | 5.8 deg, 41.5 deg | 1.3 deg |
+| Monster Truck | 5.2 t on 1.7 m tyres, **70 cm of travel**, 700 kW AWD | 5.9 deg, 3.7 deg | 1.5 deg |
+| Dune Buggy | 900 kg open frame, **50 cm of travel**, rear-drive | 5.8 deg, 6.0 deg | 2.0 deg |
+
+**Long travel, measured:** dropped level onto flat ground, the highest drop each takes without
+reaching its bump stops — sedan 0.25 m, SUV 0.5 m, **dune buggy 1.5 m, monster truck 2.0 m**, both
+landing at 3–4 g. Suspension sized for ~1.1–1.3 Hz ride with half a metre of bump travel left
+after sag.
 
 Worlds: **Default Hills**, **Flat Pad** (all 800 m flat), **Rough Country** (seed 777, 22 m
 hills, 4 octaves), **Wet Hills** (Default Hills at 70 % grip), and two cities.
@@ -317,6 +324,27 @@ hydrants and light poles all collide** — mount a kerb at 18 km/h and the car c
 wall at 55 and it stops dead. Road markings are visual only. The render meshes are merged per
 category, so the whole city is six meshes (42 k verts) and 662 colliders, and it still runs at
 15× real time headless. A scene export gives six OBJs.
+
+**Vehicle Playground** — a 42 m hill on the west side dropping at 20 % over 210 m, steep enough
+that gravity does the work: coasting from the top, a 12 t bus reaches the kicker at ~100 km/h,
+about as fast as a sedan, so every vehicle gets to fly. At its foot, two jump lines:
+
+- **Tabletop (cars)** — 3.5 m kicker, a table, and a landing hill shaped like a ski-jump landing:
+  it follows the flight path and steepens with distance, down into a landing pit and a long
+  run-out. Cars coasting off it come down at ~2 m/s into the surface, about what dropping 20 cm
+  feels like.
+- **Mega jump (monster truck, buggy)** — 6 m kicker, same idea, shaped for the big-air vehicles'
+  longer flight. The monster truck lands at 1.5 m/s.
+
+One landing can't be matched to every vehicle — a higher flight path never meets a landing
+shaped under a lower one — so each lane is matched to its own. Both are calibrated from
+*measured* launches (vehicles leave a kicker a few degrees below its angle and pitch in the
+air), and both catch everything else too, just harder.
+
+To the east, an obstacle course: whoops, moguls, a row of five kickers (0.5–2.8 m), a step-up,
+stairs, logs, a rock garden, a tunnel, a banked bowl, an off-camber strip, a slalom and a wall of
+18 loose crates to drive through. **D-pad up / F2 cycles start points** — the hub, both hill-top
+lanes, the obstacle course, the whoops and the bowl — so you never have to drive back up.
 
 **Highway Interchange** — a grade-separated interchange at real highway dimensions. Six-lane
 mainline (12 ft lanes, 10 ft outside shoulders, 12 m median), an arterial crossing **6.4 m**
@@ -432,6 +460,10 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | audio_impact | driving hard reports no impacts; hitting a wall reports one, scaled by how hard |
 | interchange | ramp radii and grades within highway standards, the road surface present along every path, 5 m bridge clearance, no two ramps on the same ground |
 | interchange_drive | all four ramps driven from the mainline up to the arterial, including the loop that passes under the bridge |
+| playground | hill height, every start point on the ground, table and landing pit where designed, loose crates, no coplanar surfaces |
+| playground_hill | the garbage truck and the bus coast off the hill to ~100 km/h and fly the tabletop |
+| playground_landings | sedan and buggy on the tabletop, monster truck on the mega jump: each lands at under 3 m/s into the surface |
+| long_travel | sedan 0.25 m, buggy 1.25 m, monster truck 1.75 m drops without reaching the bump stops |
 | vehicle_models | every surface of every vehicle body encloses a positive volume, like a box Godot made itself (catches inside-out meshes) |
 | interchange_finish | rails follow every ramp's curve (hit at the same distance from the centreline all the way round) · no two surfaces within 5 mm anywhere (no z-fighting) |
 | drive_modes | every mode on disk: builds, applies, drives straight; Standard proven neutral |

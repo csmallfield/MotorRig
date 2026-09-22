@@ -1,6 +1,6 @@
 # Vehicle proxy bodies
 
-Low-poly stand-ins for the eight vehicles — better than a cube, deliberately not a hero asset.
+Low-poly stand-ins for the ten vehicles — better than a cube, deliberately not a hero asset.
 Already assigned: each car profile's `chassis_scene` points at its `.glb`.
 
 | file | vehicle | triangles | size (W × H × L) |
@@ -13,6 +13,8 @@ Already assigned: each car profile's `chassis_scene` points at its `.glb`.
 | `vehicles/city_bus.glb` | City Bus | 144 | 2.55 × 3.10 × 11.97 m |
 | `vehicles/garbage_truck.glb` | Garbage Truck | 156 | 2.50 × 3.40 × 9.49 m |
 | `vehicles/quad_atv.glb` | Quad ATV | 132 | 0.66 × 0.55 × 1.83 m |
+| `vehicles/monster_truck.glb` | Monster Truck | 192 | 2.60 × 1.25 × 4.95 m |
+| `vehicles/dune_buggy.glb` | Dune Buggy | 204 | 1.54 × 1.04 × 3.46 m |
 
 Metres, Y up, −Z forward, origin at the chassis centre — the rig's convention, so they drop
 straight in with no transform.

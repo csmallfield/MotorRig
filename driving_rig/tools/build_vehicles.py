@@ -167,6 +167,78 @@ def quad(d: dict) -> Mesh:
     return m
 
 
+def monster_truck(d: dict) -> Mesh:
+    """A pickup shell riding high over the tyres: a narrow frame between the wheels, the body
+    above the tyre tops, and the tyres standing well proud of it."""
+    f = frame(d)
+    m = Mesh()
+    L, bottom, top, sill = f["L"], f["bottom"], f["top"], f["sill"]
+    z = lambda t: f["front"] + L * t                                              # noqa: E731
+    deck = f["wheel_top"] + 0.06                         # body starts above the tyre tops
+    hw = min(d["body"][0] / 2, sill + 0.35)
+    m.hexa("trim", (z(0.10), sill * 0.55, sill * 0.55, bottom + 0.05, deck),       # chassis rails
+           (z(0.90), sill * 0.55, sill * 0.55, bottom + 0.05, deck))
+    m.hexa("body", (z(0.02), hw * 0.86, hw * 0.80, deck, deck + 0.34),            # bonnet
+           (z(0.36), hw, hw * 0.96, deck, deck + 0.38))
+    m.hexa("body", (z(0.36), hw, hw, deck, deck + 0.20), (z(0.98), hw, hw, deck, deck + 0.20))   # floor
+    cab_top = top - 0.06                                 # the light bar sits on top of this
+    under = cab_top - 0.05
+    m.hexa("glass", (z(0.36), hw * 0.92, hw * 0.82, deck + 0.20, under - 0.03),
+           (z(0.44), hw * 0.94, hw * 0.86, deck + 0.20, under))
+    m.hexa("glass", (z(0.44), hw * 0.94, hw * 0.86, deck + 0.20, under),
+           (z(0.62), hw * 0.94, hw * 0.86, deck + 0.20, under))
+    m.hexa("body", (z(0.43), hw * 0.96, hw * 0.88, under, cab_top),               # cab roof
+           (z(0.63), hw * 0.96, hw * 0.88, under, cab_top))
+    m.hexa("body", (z(0.62), hw, hw, deck + 0.20, deck + 0.52), (z(0.66), hw, hw, deck + 0.20, deck + 0.52))  # cab back
+    for x in (-1.0, 1.0):                                                          # bed sides
+        m.hexa("body", (z(0.66), 0.05, 0.05, deck + 0.20, deck + 0.46),
+               (z(0.98), 0.05, 0.05, deck + 0.20, deck + 0.46), x=x * (hw - 0.05))
+    m.hexa("body", (z(0.97), hw - 0.10, hw - 0.10, deck + 0.20, deck + 0.44),     # tailgate
+           (z(0.99), hw - 0.10, hw - 0.10, deck + 0.20, deck + 0.44))
+    m.mirror_x("light", (hw * 0.6, deck + 0.20, f["front"] + 0.12), (0.30, 0.14, 0.10))
+    m.mirror_x("tail", (hw * 0.7, deck + 0.34, f["back"] - 0.08), (0.18, 0.18, 0.10))
+    m.box("trim", (0.0, deck - 0.05, f["front"] + 0.10), (hw * 1.9, 0.18, 0.16))  # bumper
+    m.box("trim", (0.0, top - 0.03, z(0.53)), (hw * 1.2, 0.06, 0.10))             # roof light bar
+    return m
+
+
+def dune_buggy(d: dict) -> Mesh:
+    """An open tub between the wheels, a pointed nose, the engine behind the seats, and a roll
+    cage made of bars - the frame's sections can slope along the car, which is all a cage needs."""
+    f = frame(d)
+    m = Mesh()
+    L, bottom, top, sill = f["L"], f["bottom"], f["top"], f["sill"]
+    z = lambda t: f["front"] + L * t                                              # noqa: E731
+    floor = bottom + 0.06
+    rim = f["wheel_top"] + 0.18
+    hw = min(d["body"][0] / 2, sill + 0.06)
+    m.hexa("body", (z(0.02), sill * 0.35, sill * 0.45, floor + 0.12, floor + 0.34),   # nose cone
+           (z(0.26), sill * 0.80, sill * 0.85, floor, rim - 0.04))
+    m.hexa("body", (z(0.26), sill * 0.80, hw, floor, rim), (z(0.70), sill * 0.80, hw, floor, rim))   # tub
+    m.hexa("trim", (z(0.70), sill * 0.70, sill * 0.62, floor, rim + 0.10),        # engine
+           (z(0.97), sill * 0.60, sill * 0.52, floor + 0.04, rim + 0.02))
+    m.hexa("trim", (z(0.42), 0.20, 0.20, floor + 0.04, rim - 0.06),                # seats
+           (z(0.58), 0.20, 0.20, floor + 0.04, rim + 0.10), x=-0.28)
+    m.hexa("trim", (z(0.42), 0.20, 0.20, floor + 0.04, rim - 0.06),
+           (z(0.58), 0.20, 0.20, floor + 0.04, rim + 0.10), x=0.28)
+    # roll cage: two hoops of bars, joined over the top
+    bar = 0.04
+    cage_top = top - bar
+    for x in (-1.0, 1.0):
+        post_x = x * (hw - 0.08)
+        m.hexa("trim", (z(0.30), bar, bar, rim - bar, rim + bar),                  # A-pillar, sloped
+               (z(0.42), bar, bar, cage_top - bar, cage_top + bar), x=post_x)
+        m.hexa("trim", (z(0.42), bar, bar, cage_top - bar, cage_top + bar),        # roof rail
+               (z(0.64), bar, bar, cage_top - bar, cage_top + bar), x=post_x)
+        m.hexa("trim", (z(0.64), bar, bar, cage_top - bar, cage_top + bar),        # rear leg, sloped
+               (z(0.80), bar, bar, rim - bar, rim + bar), x=post_x)
+    m.box("trim", (0.0, cage_top, z(0.43)), (2 * (hw - 0.08) - 2 * bar, bar * 2, bar * 2))   # cross bars
+    m.box("trim", (0.0, cage_top, z(0.63)), (2 * (hw - 0.08) - 2 * bar, bar * 2, bar * 2))
+    m.mirror_x("light", (0.16, rim - 0.02, z(0.30)), (0.14, 0.12, 0.08))
+    m.mirror_x("tail", (sill * 0.40, rim - 0.06, z(0.975)), (0.10, 0.08, 0.05))
+    return m
+
+
 STYLES = {
     "sedan_awd":  {"waist": 0.46, "hood": 0.10, "boot": 0.09, "cabin_a": 0.36, "cabin_b": 0.80},
     "hatch_fwd":  {"waist": 0.48, "hood": 0.09, "boot": 0.07, "cabin_a": 0.30, "cabin_b": 0.86,
@@ -178,7 +250,8 @@ STYLES = {
     "limo":       {"waist": 0.44, "hood": 0.10, "boot": 0.10, "cabin_a": 0.22, "cabin_b": 0.88,
                    "cabin_w": 0.88},
 }
-SPECIAL = {"city_bus": bus, "garbage_truck": garbage_truck, "quad_atv": quad}
+SPECIAL = {"city_bus": bus, "garbage_truck": garbage_truck, "quad_atv": quad,
+           "monster_truck": monster_truck, "dune_buggy": dune_buggy}
 
 
 def main(dims_path: str, out_dir: str) -> None:

@@ -8,7 +8,7 @@ extends Node3D
 ##   SCENE       any imported glTF/scene — every MeshInstance3D gets a trimesh collider
 ##               built from its own render mesh (no simplified proxy)
 
-enum Source { PROCEDURAL, SCENE, CITY, INTERCHANGE }
+enum Source { PROCEDURAL, SCENE, CITY, INTERCHANGE, PLAYGROUND }
 
 const LAYER_WORLD: int = 1
 
@@ -40,6 +40,10 @@ var imported_scene: PackedScene
 var collision_source_id: String = ""
 ## Set when the world is an interchange: ramp paths and their measurements.
 var interchange: InterchangeBuilder
+var playground: PlaygroundBuilder
+## Named places to start from, for worlds that have more than one ({name, transform}). The car
+## cycles through them on D-pad up / F2.
+var spawn_points: Array[Dictionary] = []
 
 var _noise := FastNoiseLite.new()
 
@@ -51,6 +55,8 @@ func _ready() -> void:
 			_build_city()
 		Source.INTERCHANGE:
 			_build_interchange()
+		Source.PLAYGROUND:
+			_build_playground()
 		Source.PROCEDURAL:
 			_build_procedural()
 			if build_test_props:
@@ -106,6 +112,21 @@ func _build_city() -> void:
 		p.city_blocks_z, p.block_size_x, p.block_size_z, "props" if p.build_test_props else "bare"]
 	print("City: %d buildings, %d street props, %.0f x %.0f m" % [info["buildings"], info["props"],
 		info["width"], info["depth"]])
+
+
+func _build_playground() -> void:
+	var p: WorldProfile = profile
+	playground = PlaygroundBuilder.new()
+	var info := playground.build(self, p, {
+		"ground": material,
+		"structure": sidewalk_material if sidewalk_material else props_material,
+		"rocks": building_material if building_material else props_material,
+		"crate": props_material,
+		"paint": marker_material,
+	})
+	spawn_points = playground.spawns
+	collision_source_id = "playground_seed%d_%s" % [p.seed_value, "props" if p.build_test_props else "bare"]
+	print("Playground: %d features, %d spawn points (D-pad up / F2 to cycle)" % [info["features"], info["spawns"]])
 
 
 func _build_interchange() -> void:

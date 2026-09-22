@@ -7,7 +7,7 @@ extends Resource
 ## Surface grip and air density are *physics*, not geometry: a wet world with the same
 ## terrain shares its collision source (and so its scene export) with the dry one.
 
-enum Source { PROCEDURAL, SCENE, CITY, INTERCHANGE }
+enum Source { PROCEDURAL, SCENE, CITY, INTERCHANGE, PLAYGROUND }
 
 ## The profile the running scene was built with (set by Terrain). Read by the car.
 static var active: WorldProfile
@@ -77,6 +77,8 @@ func summary() -> String:
 	match source:
 		Source.SCENE:
 			terrain = "scene: %s" % (imported_scene.resource_path.get_file() if imported_scene else "(none set)")
+		Source.PLAYGROUND:
+			terrain = "vehicle playground: 42 m hill, tabletop, mega kicker, obstacle course"
 		Source.INTERCHANGE:
 			terrain = "highway interchange: 6-lane mainline, arterial %0.1f m over it on a bridge, 6 ramps" % 6.4
 		Source.CITY:

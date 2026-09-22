@@ -105,6 +105,135 @@ func wall_strip(path: PackedVector3Array, offset: float, height: float, thicknes
 			_quad4(inner[i + 1] + up, inner[i] + up, outer[i] + up, outer[i + 1] + up, Vector3.UP)
 
 
+## One flat convex face, oriented so its normal points away from `inside` - the winding follows
+## from that rather than from the order the corners happen to be listed in. Every solid below is
+## built from these, so none of them can come out inside-out.
+func face(pts: PackedVector3Array, inside: Vector3) -> void:
+	var n := (pts[1] - pts[0]).cross(pts[2] - pts[0])
+	if n.length_squared() < 1e-12 and pts.size() > 3:
+		n = (pts[2] - pts[0]).cross(pts[3] - pts[0])
+	if n.length_squared() < 1e-12:
+		return                                   # degenerate: nothing to draw
+	n = n.normalized()
+	var centre := Vector3.ZERO
+	for p in pts:
+		centre += p
+	centre /= pts.size()
+	if n.dot(centre - inside) < 0.0:
+		n = -n
+	for i in range(1, pts.size() - 1):
+		var a := pts[0]
+		var b := pts[i]
+		var c := pts[i + 1]
+		# Godot's front faces wind so that (b - a) x (c - a) points away from the normal
+		if (b - a).cross(c - a).dot(n) > 0.0:
+			var t := b
+			b = c
+			c = t
+		var base := _verts.size()
+		_push(a, n)
+		_push(b, n)
+		_push(c, n)
+		_tri(base, base + 1, base + 2)
+
+
+## A closed convex solid from its faces (each a list of corners); faces are oriented outward
+## from the solid's own centre.
+func solid(faces: Array) -> void:
+	var centre := Vector3.ZERO
+	var n := 0
+	for f: PackedVector3Array in faces:
+		for p in f:
+			centre += p
+			n += 1
+	centre /= maxf(n, 1)
+	for f: PackedVector3Array in faces:
+		face(f, centre)
+
+
+## A box of `size` placed by `xf` (rotation and all - box() above is axis-aligned only).
+func box_xf(xf: Transform3D, size: Vector3) -> void:
+	var h := size * 0.5
+	var c := func(x: float, y: float, z: float) -> Vector3: return xf * Vector3(x * h.x, y * h.y, z * h.z)
+	var v := [c.call(-1, -1, -1), c.call(1, -1, -1), c.call(1, 1, -1), c.call(-1, 1, -1),
+		c.call(-1, -1, 1), c.call(1, -1, 1), c.call(1, 1, 1), c.call(-1, 1, 1)]
+	solid([
+		PackedVector3Array([v[0], v[1], v[2], v[3]]), PackedVector3Array([v[4], v[5], v[6], v[7]]),
+		PackedVector3Array([v[0], v[1], v[5], v[4]]), PackedVector3Array([v[3], v[2], v[6], v[7]]),
+		PackedVector3Array([v[0], v[3], v[7], v[4]]), PackedVector3Array([v[1], v[2], v[6], v[5]]),
+	])
+
+
+## A ramp: `length` long along local -Z, rising from 0 at the back edge (+Z) to `height` at the
+## lip (-Z), `width` wide. Drive toward -Z to go up it and off the end.
+func wedge(xf: Transform3D, width: float, length: float, height: float) -> void:
+	var w := width * 0.5
+	var l := length * 0.5
+	var p := func(x: float, y: float, z: float) -> Vector3: return xf * Vector3(x, y, z)
+	var bl: Vector3 = p.call(-w, 0.0, l)
+	var br: Vector3 = p.call(w, 0.0, l)
+	var fl: Vector3 = p.call(-w, 0.0, -l)
+	var fr: Vector3 = p.call(w, 0.0, -l)
+	var tl: Vector3 = p.call(-w, height, -l)
+	var tr: Vector3 = p.call(w, height, -l)
+	solid([
+		PackedVector3Array([bl, br, tr, tl]),          # the slope
+		PackedVector3Array([fl, fr, tr, tl]),          # the drop at the lip
+		PackedVector3Array([bl, br, fr, fl]),          # underside
+		PackedVector3Array([bl, fl, tl]),              # sides
+		PackedVector3Array([br, fr, tr]),
+	])
+
+
+## A cylinder lying along local X (logs, pipes), placed by `xf`.
+func cylinder_xf(xf: Transform3D, radius: float, length: float, segments: int = 14) -> void:
+	var ring_a := PackedVector3Array()
+	var ring_b := PackedVector3Array()
+	for i in segments:
+		var a := TAU * i / segments
+		var o := Vector3(0.0, cos(a) * radius, sin(a) * radius)
+		ring_a.append(xf * (o + Vector3(-length * 0.5, 0, 0)))
+		ring_b.append(xf * (o + Vector3(length * 0.5, 0, 0)))
+	var faces := [ring_a, ring_b]
+	for i in segments:
+		var j := (i + 1) % segments
+		faces.append(PackedVector3Array([ring_a[i], ring_a[j], ring_b[j], ring_b[i]]))
+	solid(faces)
+
+
+## Terrain from a height function: nx x nz cells of `cell` metres from (x0, z0). Each cell is a
+## flat quad split in two, each triangle facing up.
+func heightfield(x0: float, z0: float, nx: int, nz: int, cell: float, height: Callable) -> void:
+	var ys := PackedFloat32Array()
+	ys.resize((nx + 1) * (nz + 1))
+	for j in nz + 1:
+		for i in nx + 1:
+			ys[j * (nx + 1) + i] = height.call(x0 + i * cell, z0 + j * cell)
+	# one shared vertex per grid point with a smooth normal (central differences), rather than
+	# three per triangle: a 330 x 330 field is 110 k vertices instead of 650 k, and it shades
+	# like ground instead of like facets
+	var w := nx + 1
+	var base := _verts.size()
+	for j in nz + 1:
+		for i in nx + 1:
+			var y := ys[j * w + i]
+			var dx := ys[j * w + mini(i + 1, nx)] - ys[j * w + maxi(i - 1, 0)]
+			var dz := ys[mini(j + 1, nz) * w + i] - ys[maxi(j - 1, 0) * w + i]
+			var span_x := cell * float(mini(i + 1, nx) - maxi(i - 1, 0))
+			var span_z := cell * float(mini(j + 1, nz) - maxi(j - 1, 0))
+			_push(Vector3(x0 + i * cell, y, z0 + j * cell), Vector3(-dx / span_x, 1.0, -dz / span_z).normalized())
+	# (a, b, c) and (a, c, d) with b one step +X and d one step +Z is the winding face() picks
+	# for an upward face - checked by the primitives test
+	for j in nz:
+		for i in nx:
+			var a := base + j * w + i
+			var b := a + 1
+			var c := a + w + 1
+			var d := a + w
+			_tri(a, b, c)
+			_tri(a, c, d)
+
+
 ## Every triangle as a flat vertex list - what ConcavePolygonShape3D wants, so the collider is
 ## exactly the surface you can see.
 func triangles() -> PackedVector3Array:

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="WorldProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/profiles/world_profile.gd" id="1_j5asv"]
+
+[resource]
+script = ExtResource("1_j5asv")
+display_name = "Vehicle Playground"
+description = "A 42 m hill to the west that any vehicle can build speed on (a bus coasts to ~95 km/h), a tabletop and a 6 m mega kicker at its foot, and an obstacle course to the east: whoops, moguls, kickers, a step-up, stairs, logs, a rock garden, a tunnel, a banked bowl, an off-camber strip and a wall of crates. D-pad up / F2 jumps between start points, including the hill top."
+source = 4

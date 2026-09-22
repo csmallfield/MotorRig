@@ -17,6 +17,7 @@ extends RigidBody3D
 
 signal teleported
 signal gear_changed(reversing: bool)
+signal spawn_changed(spawn_name: String)
 ## Something was hit. `strength` is the impulse divided by the car's mass, so it reads as the
 ## speed change in m/s and means the same thing on a quad and on a garbage truck.
 signal impacted(strength: float, position: Vector3)
@@ -472,6 +473,24 @@ func _build_wheels() -> void:
 
 # === PHYSICS ===
 
+var _spawn_index: int = 0
+
+## Jump to the world's next named spawn point, if it has any (the playground's hill top, etc).
+## Returns the name, or "" if this world has none.
+func next_spawn() -> String:
+	var terrain := get_node_or_null(^"../Terrain")
+	var points: Array = terrain.get("spawn_points") if terrain else []
+	if points.is_empty() or reset_locked:
+		return ""
+	_spawn_index = (_spawn_index + 1) % points.size()
+	var sp: Dictionary = points[_spawn_index]
+	var xf: Transform3D = sp["transform"]
+	xf.origin.y = _ground_height_at(xf.origin) + rest_height() + 0.05
+	_request_reset(xf)
+	spawn_changed.emit(sp["name"])
+	return sp["name"]
+
+
 ## Height of the chassis origin when the car is sitting on its tyres at rest. A 12 m bus
 ## rests at 1.87 m; the scene's spawn height suits a sedan, so anything taller has to be
 ## lifted or it starts with its body inside the road and can't move at all.
@@ -818,6 +837,8 @@ func _poll_player_input() -> void:
 	input_brake = Input.get_action_strength(&"brake")
 	input_steer = Input.get_axis(&"steer_left", &"steer_right")
 	input_handbrake = Input.is_action_pressed(&"handbrake")
+	if Input.is_action_just_pressed(&"next_spawn"):
+		next_spawn()
 	if Input.is_action_just_pressed(&"reverse"):
 		input_reverse_toggle = true
 	if input_reverse_toggle:
