@@ -1,4 +1,4 @@
-# Driving Rig — v0.16.0
+# Driving Rig — v0.16.1
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -460,7 +460,8 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | audio_impact | driving hard reports no impacts; hitting a wall reports one, scaled by how hard |
 | interchange | ramp radii and grades within highway standards, the road surface present along every path, 5 m bridge clearance, no two ramps on the same ground |
 | interchange_drive | all four ramps driven from the mainline up to the arterial, including the loop that passes under the bridge |
-| playground | hill height, every start point on the ground, table and landing pit where designed, loose crates, no coplanar surfaces |
+| car:…:belly | set down with its body on the ground, every vehicle stands back up to its rest height on four loaded wheels |
+| playground | hill height, start points on the ground, table and pit where designed, landing-valley sides ≤ 22°, every obstacle on level ground, loose crates, no coplanar surfaces |
 | playground_hill | the garbage truck and the bus coast off the hill to ~100 km/h and fly the tabletop |
 | playground_landings | sedan and buggy on the tabletop, monster truck on the mega jump: each lands at under 3 m/s into the surface |
 | long_travel | sedan 0.25 m, buggy 1.25 m, monster truck 1.75 m drops without reaching the bump stops |

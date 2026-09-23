@@ -17,10 +17,11 @@ const HALF: float = 330.0
 const CELL: float = 2.0
 const HILL_TOP: float = 42.0
 const HILL_Z: float = -100.0              # centre line of the hill lanes
-const HILL_W: float = 70.0
+const HILL_W: float = 120.0             # wide enough for two jump lanes 60 m apart
 const SUMMIT_X: float = -320.0            # flat summit to here
 const SUMMIT_END: float = -290.0
 const FOOT_X: float = -110.0              # the slope meets the ground here
+const BOWL := Vector2(-190.0, 190.0)      # south-west, clear of everything else
 
 var spawns: Array[Dictionary] = []        # {name, transform}
 ## The two jump lines: lip x, lip height, kicker angle, lane z and half-width. The landing
@@ -32,11 +33,11 @@ var jumps: Array[Dictionary] = [
 	# The table ends just before that, so they land on the slope; faster, further-flying vehicles
 	# land further down it, where it is steeper - which is what their steeper arrival needs.
 	{"name": "tabletop", "lip_x": -75.0, "lip_y": 3.5, "launch_deg": 9.0, "design_kmh": 108.0,
-		"z": HILL_Z + 16.0, "half": 8.0, "pit": 8.0},
+		"z": HILL_Z + 30.0, "half": 8.0, "pit": 5.0},
 	# the mega lane is matched to the big-air vehicles instead: the monster truck comes back to
 	# table height ~36 m out (effective launch ~11 deg at 110 km/h), so the table ends at ~33 m
 	{"name": "mega", "lip_x": -78.0, "lip_y": 6.0, "launch_deg": 11.2, "design_kmh": 110.0,
-		"z": HILL_Z - 18.0, "half": 7.0, "pit": 10.0, "max_slope": 22.0},
+		"z": HILL_Z - 30.0, "half": 7.0, "pit": 5.0, "max_slope": 22.0},
 ]
 var _landing_profiles: Array[PackedFloat32Array] = []
 const LAND_STEP: float = 0.5
@@ -67,7 +68,7 @@ func build(parent: Node3D, p: WorldProfile, mats: Dictionary) -> Dictionary:
 		Vector3(HALF + 400, -0.02, HALF), Vector3(HALF, -0.02, HALF)]), Vector3(HALF + 200, -10, 0))
 
 	# --- the jump line at the foot of the hill (south lane): kicker, table, landing ---
-	var lane_a := HILL_Z + 16.0
+	var lane_a: float = jumps[0]["z"]
 	var east := Basis(Vector3.UP, -PI * 0.5)           # local -Z (the way up a wedge) -> +X
 	var west := Basis(Vector3.UP, PI * 0.5)
 	# The kicker is a solid; the table and landing behind it are part of the ground (see
@@ -76,7 +77,7 @@ func build(parent: Node3D, p: WorldProfile, mats: Dictionary) -> Dictionary:
 	features["tabletop"] = Vector3(-75.0, 3.5, lane_a)
 	# --- and the mega jump (north lane): a 6 m kicker, a 40 m table and an 80 m landing slope.
 	# Into flat ground a 10 m drop bottoms out anything; onto a slope it's a landing.
-	var lane_b := HILL_Z - 18.0
+	var lane_b: float = jumps[1]["z"]
 	_ramp(solids, east, Vector3(-89.0, 0.0, lane_b), 14.0, 22.0, 6.0)
 	features["mega_kicker"] = Vector3(-80.0, 5.5, lane_b)
 
@@ -160,7 +161,7 @@ func build(parent: Node3D, p: WorldProfile, mats: Dictionary) -> Dictionary:
 	_spawn("Hill top: mega jump (monster truck, buggy)", Vector3((SUMMIT_X + SUMMIT_END) * 0.5, 0.0, lane_b), -PI * 0.5)
 	_spawn("Obstacle course", Vector3(45.0, 0.0, -40.0), -PI * 0.5)
 	_spawn("Whoops and moguls", Vector3(45.0, 0.0, 50.0), -PI * 0.5)
-	_spawn("Bowl", Vector3(180.0, 0.0, -180.0), -PI * 0.5)     # the floor, not the rim
+	_spawn("Bowl", Vector3(BOWL.x, 0.0, BOWL.y), -PI * 0.5)     # the floor, not the rim
 	return {"spawns": spawns.size(), "features": features.size()}
 
 
@@ -187,7 +188,7 @@ func _height(x: float, z: float) -> float:
 		var edge := _smooth(0.0, 6.0, minf(minf(x - 60.0, 200.0 - x), minf(z - 80.0, 200.0 - z)))
 		y += 1.1 * mo * edge
 	# the bowl: a banked ring to ride round, walls rising to 5 m
-	var r := Vector2(x - 180.0, z + 180.0).length()
+	var r := Vector2(x - BOWL.x, z - BOWL.y).length()
 	if r < 70.0:
 		y += 5.0 * _smooth(28.0, 44.0, r) * (1.0 - _smooth(50.0, 64.0, r))
 	# off-camber strip: tilted 14 degrees sideways, for rolling over (or not)
@@ -217,8 +218,18 @@ func _landing_at(j: int, x: float, z: float) -> float:
 	var i := int(u / LAND_STEP)
 	var f := u / LAND_STEP - i
 	var h := lerpf(prof[mini(i, prof.size() - 1)], prof[mini(i + 1, prof.size() - 1)], f)
+	# The sides fall away at no more than ~22 degrees, so a car that lands off-line or turns in
+	# the pit can drive out. (They were 10 m wide for up to 10 m of height - walls of 56-85
+	# degrees - and a truck that ended up against one stayed there.)
 	var across := absf(z - float(jp["z"])) - float(jp["half"])
-	return h * (1.0 - _smooth(0.0, 10.0, across))
+	return h * (1.0 - _smooth(0.0, side_width(jp), across))
+
+
+## How far a landing's sides take to fall away: a smoothstep is at most 1.5x its average slope,
+## so for <= 22 deg over the tallest part (table or pit) the width is 1.5 * height / tan(22).
+static func side_width(jp: Dictionary) -> float:
+	var tallest := maxf(float(jp["lip_y"]), float(jp["pit"]))
+	return 1.5 * tallest / tan(deg_to_rad(22.0))
 
 
 ## A ski-jump landing, from the kicker's own launch. Follow the flight path for the design speed

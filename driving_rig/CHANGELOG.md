@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.16.1 — the monster truck getting stuck
+
+- **Fix (car physics, all vehicles): a car could get stuck on its belly for good.** Each wheel
+  finds the ground with a sphere the size of its tyre, swept down from the suspension mount.
+  When the body was pressed onto the ground, a big tyre's sphere began *buried* - the monster
+  truck's by 0.44 m. The physics engine ignores that initial overlap, so the wheel read "fully
+  extended", the springs pushed with zero force, and the car sat there. The monster truck was
+  worst hit; the bus and quad were exposed too. The sweep now starts one tyre radius above the
+  mount, and a sweep that begins in contact reads as fully compressed, never fully extended.
+  Normal driving is unchanged - every reference figure is identical.
+- **Fix: bump stops stop growing 12 cm in.** A real bump stop is a few cm deep; counting the
+  whole of the impossible "wheel inside the car" state launched a monster truck 11 m up when
+  it stood up from its belly. Nothing short of 12 cm into the stop changes.
+- **Fix (playground): landing pits had cliffs for sides.** 8-10 m deep with walls of 56-85
+  degrees, and they ran into the obstacle course. Pits are now 5 m deep (still below where
+  the matched landings happen) with sides of at most 22 deg, the two jump lanes are 60 m
+  apart, and the bowl has moved to the south-west - it had been sitting under the kicker
+  park. Landings are unchanged (1.6-2.2 m/s into the surface).
+- Tests: a `belly` check for every vehicle; the playground test now also checks the landing
+  valleys' side angles and that every obstacle sits on level ground.
+
 ## 0.16.0 — monster truck, dune buggy, vehicle playground
 
 - **Monster Truck** (5.2 t, 1.7 m tyres, 70 cm travel, 700 kW AWD) and **Dune Buggy** (900 kg,

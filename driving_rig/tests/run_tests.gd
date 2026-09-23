@@ -44,7 +44,7 @@ func _initialize() -> void:
 		if a == "car_profiles":
 			for e: Dictionary in root.get_node("SimConfig").scan_cars():
 				if e["profile"]:
-					for kind in ["spawn", "settle", "corner", "flick"]:
+					for kind in ["spawn", "belly", "settle", "corner", "flick"]:
 						queue.append("car:%s:%s" % [e["path"], kind])
 		elif a == "world_profiles":
 			for e: Dictionary in root.get_node("SimConfig").scan_worlds():
@@ -131,6 +131,7 @@ func _start(test_name: String) -> void:
 	if test_name.begins_with("drivable:"):
 		mode_path = test_name.substr(9)
 	if test_name in FLAT or test_name.ends_with(":corner") or test_name.ends_with(":flick") \
+			or test_name.ends_with(":belly") \
 			or test_name in ["mode_loose", "mode_stunt"] or test_name.begins_with("mode:") \
 			or test_name.begins_with("drivable:"):
 		world = world.duplicate()
@@ -1693,14 +1694,31 @@ func _t_playground() -> bool:
 		var q := PhysicsRayQueryParameters3D.create(Vector3(x, 80, z), Vector3(x, -30, z), DrivingCar.LAYER_WORLD)
 		var h := space.intersect_ray(q)
 		return (h["position"] as Vector3).y if h else -999.0
-	var summit: float = ground_at.call(-305.0, -84.0)
+	var summit: float = ground_at.call(-305.0, -70.0)
 	var spawns_ok := 0
 	for sp: Dictionary in terrain.spawn_points:
 		var o: Vector3 = (sp["transform"] as Transform3D).origin
 		if absf(float(ground_at.call(o.x, o.z)) - o.y) < 0.3:
 			spawns_ok += 1
-	var table: float = ground_at.call(-60.0, -84.0)
-	var pit: float = ground_at.call(-75.0 + 60.0, -84.0)
+	var table: float = ground_at.call(-60.0, -70.0)
+	var pit: float = ground_at.call(-75.0 + 55.0, -70.0)
+	# nothing may sit on a slope it wasn't designed for (the kicker park used to be half on the
+	# bowl's wall), and the landing valleys' sides have to be drivable
+	var pg: PlaygroundBuilder = terrain.playground
+	var tilted := PackedStringArray()
+	for f in ["kickers", "step_up", "stairs", "logs", "rocks", "tunnel", "slalom", "crates"]:
+		var at: Vector3 = pg.features[f]
+		var gx: float = pg._height(at.x + 1.0, at.z) - pg._height(at.x - 1.0, at.z)
+		var gz: float = pg._height(at.x, at.z + 1.0) - pg._height(at.x, at.z - 1.0)
+		if rad_to_deg(atan(Vector2(gx, gz).length() / 2.0)) > 3.0:
+			tilted.append(f)
+	var wall := 0.0
+	for jp: Dictionary in pg.jumps:
+		for u in range(0, 150, 3):
+			var x: float = float(jp["lip_x"]) + u
+			for k in 60:
+				var z: float = float(jp["z"]) + k * 0.5
+				wall = maxf(wall, rad_to_deg(atan(absf(pg._height(x, z + 0.5) - pg._height(x, z)) / 0.5)))
 	var crates := 0
 	for n in terrain.find_children("*", "RigidBody3D", true, false):
 		crates += 1
@@ -1719,9 +1737,11 @@ func _t_playground() -> bool:
 			if c and absf((c["position"] as Vector3).y - y1) < 0.005:
 				coplanar += 1
 	var ok: bool = summit > 40.0 and spawns_ok == terrain.spawn_points.size() and terrain.spawn_points.size() >= 5 \
-			and absf(table - 3.5) < 0.1 and pit < -3.0 and crates >= 15 and coplanar == 0
-	_result(ok, "hill top %.1f m · %d/%d start points on the ground · tabletop %.2f m, landing pit %.1f m · %d loose crates · %d coplanar surfaces" % [
-		summit, spawns_ok, terrain.spawn_points.size(), table, pit, crates, coplanar])
+			and absf(table - 3.5) < 0.1 and pit < -3.0 and crates >= 15 and coplanar == 0 \
+			and tilted.is_empty() and wall < 25.0
+	_result(ok, "hill top %.1f m · %d/%d start points on the ground · tabletop %.2f m, landing pit %.1f m · landing valley sides at most %.0f deg · %s · %d loose crates · %d coplanar surfaces" % [
+		summit, spawns_ok, terrain.spawn_points.size(), table, pit, wall,
+		"every obstacle on level ground" if tilted.is_empty() else "ON A SLOPE: " + ", ".join(tilted), crates, coplanar])
 	return true
 
 
@@ -1857,3 +1877,28 @@ func _drop_start() -> void:
 	car.use_player_input = false
 	st["t0"] = t
 	st["comp"] = 0.0
+
+
+## Set the vehicle down with its body resting on the ground, and it has to stand back up on its
+## wheels. It used not to, for any vehicle whose tyre radius exceeded the drop from suspension
+## mount to body floor: the wheel's ground-finding sphere began buried, the engine ignored the
+## overlap, the suspension read "fully extended", pushed with zero force, and the car stayed on
+## its belly for good - the monster truck's sphere started 0.44 m in the ground.
+func _t_car_belly() -> bool:
+	if t == 1:
+		place(Vector3(280.0, 0.0, 280.0), 0.0)
+	if t == 4:
+		# body floor exactly on the ground, level, still
+		car._request_reset(Transform3D(Basis.IDENTITY, Vector3(280.0, car.body_size.y * 0.5 + 0.01, 280.0)))
+		st["low"] = car.body_size.y * 0.5
+	if t == 240 * 4:
+		var loaded := 0
+		for i in 4:
+			if car.wheel_grounded[i] and car.wheel_load[i] > 1.0:
+				loaded += 1
+		var err := absf(car.global_position.y - _predicted_ride_y())
+		var ok: bool = loaded == 4 and err < 0.05 and car.global_basis.y.y > 0.99
+		_result(ok, "%s: set down on its belly at %.2f m -> back up to %.2f m (rest %.2f), %d/4 wheels carrying load" % [
+			car.active_profile.display_name, st["low"], car.global_position.y, _predicted_ride_y(), loaded])
+		return true
+	return false

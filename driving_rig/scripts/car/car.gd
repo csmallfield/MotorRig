@@ -27,6 +27,7 @@ enum Drive { RWD, FWD, AWD }
 const WHEEL_COUNT: int = 4
 const WHEEL_NAMES: PackedStringArray = ["FL", "FR", "RL", "RR"]
 const GRAVITY: float = 9.81
+const BUMP_STOP_DEPTH: float = 0.12
 const LAYER_WORLD: int = 1
 const LAYER_CAR: int = 2
 const VIS_LAYER_BODY: int = 1 << 1   ## render layer 2: body shell, culled by the driver cam
@@ -435,8 +436,12 @@ func _build_wheels() -> void:
 		var cast := ShapeCast3D.new()
 		cast.name = "cast_%s" % wn
 		cast.shape = sphere
-		cast.position = hp
-		cast.target_position = Vector3(0.0, -susp_rest, 0.0)
+		# The sweep starts one tyre radius ABOVE the mount. Starting at the mount, a big tyre's
+		# sphere could begin buried when the body is pressed onto the ground (the monster truck's
+		# by 0.44 m); the engine ignores that overlap, the wheel read "fully extended", the springs
+		# pushed with zero force and the car sat on its belly for good. From up here it can't.
+		cast.position = hp + Vector3.UP * wheel_radius
+		cast.target_position = Vector3(0.0, -(susp_rest + wheel_radius), 0.0)
 		cast.collision_mask = LAYER_WORLD
 		cast.max_results = 4
 		cast.enabled = false   # updated manually each tick, in a known order
@@ -547,7 +552,11 @@ func _physics_process(delta: float) -> void:
 		var grounded := cast.is_colliding()
 		var comp := 0.0
 		if grounded:
-			comp = susp_rest - _refine_cast_distance(i, cast, -up)
+			comp = susp_rest - (_refine_cast_distance(i, cast, -up) - wheel_radius)
+			# belt and braces: a sweep that begins in contact means the wheel is jammed up into
+			# the car - fully compressed, never fully extended
+			if cast.get_closest_collision_safe_fraction() <= 0.0:
+				comp = maxf(comp, susp_max_travel + 0.05)
 		var comp_vel := clampf((comp - _prev_comp[i]) / delta, -MAX_COMP_VEL, MAX_COMP_VEL)
 		_prev_comp[i] = comp
 		_raw_comp[i] = comp
@@ -556,9 +565,14 @@ func _physics_process(delta: float) -> void:
 		var f := 0.0
 		if grounded:
 			var k := spring_rate_front if i < 2 else spring_rate_rear
-			f = k * comp + (damp_bump if comp_vel > 0.0 else damp_rebound) * comp_vel
-			if comp > susp_max_travel:
-				f += bump_stop_rate * (comp - susp_max_travel)
+			# A real bump stop is a few cm deep. Past that the wheel would have to be inside the
+			# car, which only happens when the body is pressed onto the ground - and counting all
+			# of that "compression" launched a monster truck 11 m in the air. Force stops growing
+			# 12 cm into the stop; nothing short of that changes.
+			var sprung := minf(comp, susp_max_travel + BUMP_STOP_DEPTH)
+			f = k * sprung + (damp_bump if comp_vel > 0.0 else damp_rebound) * comp_vel
+			if sprung > susp_max_travel:
+				f += bump_stop_rate * (sprung - susp_max_travel)
 		_susp_force[i] = f
 
 	# --- Anti-roll bars: couple left/right compression per axle
@@ -719,8 +733,9 @@ func _report_impacts(state: PhysicsDirectBodyState3D) -> void:
 ## kept inside the cast's safe/unsafe bracket. Also writes the chosen contact p/n.
 func _refine_cast_distance(i: int, cast: ShapeCast3D, dir: Vector3) -> float:
 	var o := cast.global_position
-	var lo := susp_rest * cast.get_closest_collision_safe_fraction()
-	var hi := susp_rest * cast.get_closest_collision_unsafe_fraction()
+	var reach := susp_rest + wheel_radius                  # the sweep's full length (see _build)
+	var lo := reach * cast.get_closest_collision_safe_fraction()
+	var hi := reach * cast.get_closest_collision_unsafe_fraction()
 	var best := INF
 	var best_k := 0
 	for k in cast.get_collision_count():
@@ -736,7 +751,7 @@ func _refine_cast_distance(i: int, cast: ShapeCast3D, dir: Vector3) -> float:
 	wheel_contact_n[i] = cast.get_collision_normal(best_k)
 	if best == INF:
 		return lo
-	return clampf(best, maxf(lo - 0.002, 0.0), minf(hi + 0.002, susp_rest))
+	return clampf(best, maxf(lo - 0.002, 0.0), minf(hi + 0.002, reach))
 
 
 func _apply_arb(a: int, b: int, rate: float) -> void:
