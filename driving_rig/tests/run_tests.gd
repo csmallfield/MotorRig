@@ -24,7 +24,7 @@ const REF_MODE: String = "res://profiles/modes/standard.tres"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
 	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
-	"cameras", "camera_record", "steering_wheel", "custom_chassis", "mode_loose", "mode_stunt",
+	"cameras", "camera_record", "steering_wheel", "custom_chassis", "rig_model", "mode_loose", "mode_stunt",
 	"mode_drivable", "reverse_gear", "watch_mode", "layout", "audio_files", "audio_engine", "audio_impact",
 	"interchange", "interchange_drive", "interchange_finish", "vehicle_models",
 	"playground", "playground_hill", "playground_landings", "long_travel"]
@@ -1064,6 +1064,54 @@ func _t_custom_chassis() -> bool:
 	return false
 
 
+## A model built on the rig hierarchy (the city bus) brings its own wheels and steering wheel:
+## its `chassis` lands on the car origin, its body fills the collider, the car's suspension chain
+## drives its wheel meshes and they sit on the road, and the replay ghost does the same.
+func _t_rig_model() -> bool:
+	if t == 1:
+		main.queue_free()
+		main = load("res://scenes/main.tscn").instantiate()
+		main.get_node("Car").profile = load("res://profiles/cars/city_bus.tres")
+		main.get_node("Terrain").profile = load(REF_WORLD)
+		main.get_node("Recorder").takes_dir = TAKES_DIR
+		root.add_child(main)
+		car = main.get_node("Car")
+		rec = main.get_node("Recorder")
+		player = main.get_node("TakePlayer")
+		browser = main.get_node("TakeBrowser")
+		car.use_player_input = false
+		return false
+	if t == 5 * 240:
+		var model := car.get_node("ChassisModel")
+		var chassis := model.find_child("chassis", true, false) as Node3D
+		var origin_err := chassis.global_position.distance_to(car.global_position) if chassis else 99.0
+		var body := model.find_child("body_geo", true, false) as MeshInstance3D
+		var bb: AABB = (car.global_transform.affine_inverse() * body.global_transform) * body.mesh.get_aabb()
+		var body_err := (bb.get_center()).length() + (bb.size - car.body_size).abs().length()
+		var model_wheels := 0
+		var ground_err := 0.0
+		for wn in DrivingCar.WHEEL_NAMES:
+			var geo := car.get_node("wheel_%s_steer/wheel_%s_susp/wheel_%s_spin" % [wn, wn, wn]).get_child(0) as MeshInstance3D
+			if geo.mesh is CylinderMesh or model.is_ancestor_of(geo):
+				continue
+			model_wheels += 1
+			var wb: AABB = geo.global_transform * geo.mesh.get_aabb()
+			ground_err = maxf(ground_err, absf(wb.position.y - car._ground_height_at(wb.get_center())))
+		var own_sw := car.get_node_or_null("SteeringColumn") == null and model.is_ancestor_of(car._steering_wheel)
+		var ghost := GhostCar.new()
+		main.add_child(ghost)
+		var meta := car.build_take_meta()
+		meta["susp_rest"] = car.susp_rest
+		ghost.build(meta, null, null, null)
+		var ghost_ok := ghost.wheel_geos.all(func(g: Node3D) -> bool: return not ((g as MeshInstance3D).mesh is CylinderMesh)) \
+				and ghost.get_node_or_null("SteeringColumn") == null
+		var ok := origin_err < 0.001 and body_err < 0.05 and model_wheels == 4 and ground_err < 0.03 and own_sw and ghost_ok
+		_result(ok, "chassis on car origin (%.4f m) · body %s vs collider %s · %d model wheels, lowest point %.3f m off the road · own steering wheel %s · ghost %s" % [
+			origin_err, bb.size, car.body_size, model_wheels, ground_err, own_sw, ghost_ok])
+		return true
+	return false
+
+
 # === drive modes ===
 
 ## Every drive mode on disk: builds, applies, car drives and stays finite. Standard must be
@@ -1699,6 +1747,7 @@ func _t_vehicle_models() -> bool:
 	var bad := 0
 	var checked := 0
 	var tris := 0
+	var bodies := 0
 	var da := DirAccess.open("res://profiles/cars")
 	for f in da.get_files():
 		if not f.ends_with(".tres"):
@@ -1708,6 +1757,11 @@ func _t_vehicle_models() -> bool:
 			report.append("%s: no model" % f.get_basename())
 			bad += 1
 			continue
+		# only the generated proxies (tools/build_vehicles.py) are all closed solids; an authored
+		# model in its own folder has open panes of glass and decals
+		if prof.chassis_scene.resource_path.get_base_dir() != "res://models/vehicles":
+			continue
+		bodies += 1
 		var inst := prof.chassis_scene.instantiate()
 		for mi in inst.find_children("*", "MeshInstance3D", true, false):
 			var mesh: Mesh = (mi as MeshInstance3D).mesh
@@ -1720,8 +1774,8 @@ func _t_vehicle_models() -> bool:
 					bad += 1
 					report.append("%s surface %d inside-out (%.2f m3)" % [f.get_basename(), sfc, vol])
 		inst.free()
-	_result(bad == 0 and checked >= 16, "%d surfaces across 8 bodies (%d triangles), every one enclosing a positive volume like Godot's own box%s" % [
-		checked, tris, ("" if report.is_empty() else " - " + "; ".join(report.slice(0, 4)))])
+	_result(bad == 0 and checked >= 16, "%d surfaces across %d proxy bodies (%d triangles), every one enclosing a positive volume like Godot's own box%s" % [
+		checked, bodies, tris, ("" if report.is_empty() else " - " + "; ".join(report.slice(0, 4)))])
 	return true
 
 

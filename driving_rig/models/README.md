@@ -1,7 +1,18 @@
 # Vehicle proxy bodies
 
 Low-poly stand-ins for the ten vehicles — better than a cube, deliberately not a hero asset.
-Already assigned: each car profile's `chassis_scene` points at its `.glb`.
+Already assigned: each car profile's `chassis_scene` points at its `.glb` - except the city bus,
+which now uses a full model (below).
+
+## Full models
+
+| folder | vehicle | triangles | notes |
+|---|---|---|---|
+| `vehicles/city_bus/` | LINEA 12 city bus | 329,836 | textured PBR, cabin with 31 seats, see-through glass, its own wheels and steering wheel - see its README |
+
+Built on the rig hierarchy, so the car drives the model's own wheels (see the main README,
+"Models with their own wheels"). Its embedded textures are extracted next to the `.glb` on import;
+`review/` holds offline renders and is kept out of the game with a `.gdignore`.
 
 | file | vehicle | triangles | size (W × H × L) |
 |---|---|---|---|
@@ -10,7 +21,7 @@ Already assigned: each car profile's `chassis_scene` points at its `.glb`.
 | `vehicles/sports_rwd.glb` | Sports RWD | 192 | 1.76 × 0.80 × 4.50 m |
 | `vehicles/suv_awd.glb` | SUV AWD | 192 | 1.79 × 1.25 × 4.80 m |
 | `vehicles/limo.glb` | Stretch Limo | 192 | 2.00 × 1.45 × 8.50 m |
-| `vehicles/city_bus.glb` | City Bus | 144 | 2.55 × 3.10 × 11.97 m |
+| `vehicles/city_bus.glb` | City Bus (not used - see below) | 144 | 2.55 × 3.10 × 11.97 m |
 | `vehicles/garbage_truck.glb` | Garbage Truck | 156 | 2.50 × 3.40 × 9.49 m |
 | `vehicles/quad_atv.glb` | Quad ATV | 132 | 0.66 × 0.55 × 1.83 m |
 | `vehicles/monster_truck.glb` | Monster Truck | 192 | 2.60 × 1.25 × 4.95 m |

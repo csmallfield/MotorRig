@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.18.0 — a real city bus
+
+- **New city bus model, LINEA 12** (`models/vehicles/city_bus/`): 330k triangles, textured PBR,
+  a full cabin with 31 seats and see-through glass, so the bus profile now shows it from the
+  driver cam (`hide_chassis_in_driver_cam` off). Dimensions, wheelbase, track and wheel size are
+  unchanged, so handling, collider and takes are exactly as before.
+- **Chassis models can bring their own wheels and steering wheel.** A model built on the rig's
+  hierarchy (`chassis` with the `wheel_XX_steer/_susp/_spin/_geo` chains, optionally
+  `steering_wheel`) has its `chassis` lined up with the car origin, its wheel meshes driven by
+  the car's suspension chain in place of the cylinders, and its steering wheel turned in place of
+  the built one. The replay ghost does the same. Other models are unaffected.
+- The bus `.glb` imports with node-type suffixes off: otherwise Godot turns `steering_wheel` into
+  a VehicleWheel3D.
+- Tests: new `rig_model` (chassis on the car origin, body fills the collider, four model wheels
+  touching the road, own steering wheel, ghost matches). `vehicle_models` now checks only the
+  generated proxies - an authored model has open glass and decals, not closed shells.
+
 ## 0.17.0 — the wild camera bank, back from Full Throttle Flux
 
 - **Twelve new cameras**: handheld, overtake, kamikaze, vertigo, roadkill, helilost, whip,

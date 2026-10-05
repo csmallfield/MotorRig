@@ -118,6 +118,8 @@ var engine_volume_db: float = 0.0
 var impact_threshold: float = 0.35
 var audio: CarAudio
 var _steering_wheel: Node3D
+## Wheel meshes the chassis model brought with it (see adopt_rig_parts), by wheel name.
+var _model_wheels: Dictionary = {}
 var body_color: Color = Color(0.86, 0.42, 0.10)
 
 ## Drive mode (see scripts/profiles/drive_mode.gd)
@@ -323,8 +325,9 @@ func _build_body() -> void:
 	col.shape = shape
 	add_child(col)
 
+	var model_steering_wheel: Node3D = null
 	if chassis_scene:
-		_build_chassis_model()
+		model_steering_wheel = _build_chassis_model()
 	else:
 		var box := BoxMesh.new()
 		box.size = body_size
@@ -349,8 +352,8 @@ func _build_body() -> void:
 	if driver_cam:
 		driver_cam.cull_mask &= ~VIS_LAYER_BODY   # see out through the proxy shell
 		driver_cam.position = driver_eye
-	_steering_wheel = build_steering_wheel(self, driver_eye, steering_wheel_offset, steering_column_tilt_deg,
-			steering_wheel_radius, wheel_material, accent_material)
+	_steering_wheel = model_steering_wheel if model_steering_wheel else build_steering_wheel(self, driver_eye,
+			steering_wheel_offset, steering_column_tilt_deg, steering_wheel_radius, wheel_material, accent_material)
 	# contact reports drive the impact sounds; the suspension does its own casting
 	contact_monitor = true
 	max_contacts_reported = 6
@@ -361,8 +364,12 @@ func _build_body() -> void:
 	print("%s  %s" % [active_profile.display_name, audio.report])   # confirms what was found
 
 
-func _build_chassis_model() -> void:
+## Returns the model's own steering wheel, if it has one.
+func _build_chassis_model() -> Node3D:
 	var inst := chassis_scene.instantiate()
+	var rig := adopt_rig_parts(inst)
+	_model_wheels = rig.get("wheels", {})
+	var sw: Node3D = rig.get("steering_wheel")
 	var holder := Node3D.new()
 	holder.name = "ChassisModel"
 	holder.transform = chassis_transform
@@ -370,9 +377,46 @@ func _build_chassis_model() -> void:
 	holder.add_child(inst)
 	if hide_chassis_in_driver_cam:
 		for v in holder.find_children("*", "VisualInstance3D", true, false):
-			(v as VisualInstance3D).layers = VIS_LAYER_BODY
+			if not (sw and sw.is_ancestor_of(v)):   # the driver still sees the wheel in their hands
+				(v as VisualInstance3D).layers = VIS_LAYER_BODY
 		if inst is VisualInstance3D:
 			(inst as VisualInstance3D).layers = VIS_LAYER_BODY
+	return sw
+
+
+## A model built on the rig's own hierarchy - a `chassis` node with the four wheel chains under it
+## (wheel_XX_steer → _susp → _spin → _geo) and optionally a `steering_wheel`, as made from a bind
+## car - brings its own wheels. This puts the model's `chassis` on the car origin (the file has it
+## at ride height) and lifts each wheel_XX_geo out, keeping its pose relative to its spin node, for
+## the car's own chain to drive. The model's now-empty wheel chains are removed.
+## Returns {"wheels": {"FL": geo, ...}, "steering_wheel": node or null}, or {} for any other model.
+## Shared with the replay ghost.
+static func adopt_rig_parts(inst: Node) -> Dictionary:
+	var root := inst as Node3D
+	var chassis := inst.find_child("chassis", true, false) as Node3D
+	if root == null or chassis == null:
+		return {}
+	var wheels := {}
+	for wn in WHEEL_NAMES:
+		var geo := chassis.find_child("wheel_%s_geo" % wn, true, false) as Node3D
+		if geo == null:
+			return {}
+		wheels[wn] = geo
+	var rel := Transform3D.IDENTITY   # chassis relative to the model root
+	var n: Node = chassis
+	while n != root:
+		rel = (n as Node3D).transform * rel
+		n = n.get_parent()
+	root.transform = rel.affine_inverse()
+	for wn in WHEEL_NAMES:
+		var geo: Node3D = wheels[wn]
+		geo.get_parent().remove_child(geo)
+		geo.owner = null   # it now belongs to the car's chain, not the model's scene
+		var chain := chassis.find_child("wheel_%s_steer" % wn, true, false)
+		if chain:
+			chain.get_parent().remove_child(chain)
+			chain.free()
+	return {"wheels": wheels, "steering_wheel": chassis.find_child("steering_wheel", true, false) as Node3D}
 
 
 ## Torus rim + a spoke + a marker at 12 o'clock, on a tilted column. Returns the node that
@@ -461,11 +505,14 @@ func _build_wheels() -> void:
 		var spin := Node3D.new()
 		spin.name = "wheel_%s_spin" % wn
 		susp.add_child(spin)
-		var geo := MeshInstance3D.new()
-		geo.name = "wheel_%s_geo" % wn
-		geo.mesh = cyl
-		geo.material_override = wheel_material
-		geo.rotation = Vector3(0.0, 0.0, PI * 0.5)   # cylinder axis Y → X
+		var geo: Node3D = _model_wheels.get(wn)
+		if geo == null:
+			var cyl_mi := MeshInstance3D.new()
+			cyl_mi.name = "wheel_%s_geo" % wn
+			cyl_mi.mesh = cyl
+			cyl_mi.material_override = wheel_material
+			cyl_mi.rotation = Vector3(0.0, 0.0, PI * 0.5)   # cylinder axis Y → X
+			geo = cyl_mi
 		spin.add_child(geo)
 
 		_steer_nodes.append(steer)

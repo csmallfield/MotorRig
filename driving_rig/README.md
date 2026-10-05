@@ -117,6 +117,16 @@ car profile's `chassis_scene` and fit it with `chassis_transform`. It replaces t
 the collider is still the `body_size` box, so size that to match (handling is unchanged).
 `hide_chassis_in_driver_cam` (default on) hides it from the driver cam — turn it off for a model
 with an interior and see-through glass. The replay ghost rebuilds your model from the take.
+
+**Models with their own wheels:** a model built on the rig's hierarchy - a `chassis` node with
+`wheel_XX_steer → wheel_XX_susp → wheel_XX_spin → wheel_XX_geo` under it for FL/FR/RL/RR, and
+optionally `steering_column → steering_wheel`, as you get from a Maya bind car - brings its own
+wheels. The car lines the model's `chassis` up with its origin (it can sit at ride height in the
+file), takes each `wheel_XX_geo` and drives it with its own suspension chain in place of the
+cylinder, and turns the model's `steering_wheel` instead of building one. Anything else in the
+file just rides along with the body. In the `.glb`'s import settings turn **Use Node Type
+Suffixes off**, or Godot reads the `_wheel` in `steering_wheel` as "make a VehicleWheel3D". The
+city bus (`models/vehicles/city_bus/`) is built this way.
 Maya keeps the proxy cube (it can't read Godot scenes): parent your own model under `chassis`.
 
 ## Sound
@@ -493,6 +503,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
 | custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |
+| rig_model | the city bus model: its `chassis` lands on the car origin, its body fills the collider, the car drives its own wheel meshes and they touch the road, its steering wheel is used, the ghost does the same |
 | audio_files | per-vehicle folder wins, fallback works, rpm layers sorted, a missing sound is silent |
 | audio_engine | rpm stays inside idle…redline and shifts through the gears accelerating |
 | audio_impact | driving hard reports no impacts; hitting a wall reports one, scaled by how hard |
@@ -503,7 +514,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | playground_hill | the garbage truck and the bus coast off the hill to ~100 km/h and fly the tabletop |
 | playground_landings | sedan and buggy on the tabletop, monster truck on the mega jump: each lands at under 3 m/s into the surface |
 | long_travel | sedan 0.25 m, buggy 1.25 m, monster truck 1.75 m drops without reaching the bump stops |
-| vehicle_models | every surface of every vehicle body encloses a positive volume, like a box Godot made itself (catches inside-out meshes) |
+| vehicle_models | every surface of every generated proxy body encloses a positive volume, like a box Godot made itself (catches inside-out meshes) |
 | interchange_finish | rails follow every ramp's curve (hit at the same distance from the centreline all the way round) · no two surfaces within 5 mm anywhere (no z-fighting) |
 | drive_modes | every mode on disk: builds, applies, drives straight; Standard proven neutral |
 | mode_loose | all four wheels lock · 28° of lock at 120 km/h · sustained 180° donut at 34 km/h |

@@ -35,6 +35,7 @@ func build(meta: Dictionary, body_mat: Material, wheel_mat: Material, accent_mat
 	wheel_radius = float(meta["wheel_radius"])
 	var cp: Dictionary = meta.get("car_params", {})
 	var model_path: String = cp.get("chassis_scene", "")
+	var rig := {}
 	if model_path != "" and ResourceLoader.exists(model_path):
 		var holder := Node3D.new()
 		holder.name = "chassis_model"
@@ -42,14 +43,19 @@ func build(meta: Dictionary, body_mat: Material, wheel_mat: Material, accent_mat
 		holder.transform = Transform3D(Basis(Vector3(t[0], t[1], t[2]), Vector3(t[3], t[4], t[5]),
 				Vector3(t[6], t[7], t[8])), Vector3(t[9], t[10], t[11]))
 		add_child(holder)
-		holder.add_child((load(model_path) as PackedScene).instantiate())
+		var inst := (load(model_path) as PackedScene).instantiate()
+		rig = DrivingCar.adopt_rig_parts(inst)
+		holder.add_child(inst)
 	else:
 		_build_box(ext, body_mat, accent_mat)
-	if cp.has("steering_ratio") and cp.has("driver_eye"):
+	if cp.has("steering_ratio"):
 		steering_ratio = float(cp["steering_ratio"])
+	if rig.get("steering_wheel"):
+		_steering_wheel = rig["steering_wheel"]
+	elif cp.has("steering_ratio") and cp.has("driver_eye"):
 		_steering_wheel = DrivingCar.build_steering_wheel(self, _v3(cp["driver_eye"]), _v3(cp["steering_wheel_offset"]),
 				float(cp["steering_column_tilt_deg"]), float(cp["steering_wheel_radius"]), wheel_mat, accent_mat)
-	_build_wheels(meta, wheel_mat)
+	_build_wheels(meta, wheel_mat, rig.get("wheels", {}))
 
 
 func _build_box(ext: Vector3, body_mat: Material, accent_mat: Material) -> void:
@@ -70,7 +76,8 @@ func _build_box(ext: Vector3, body_mat: Material, accent_mat: Material) -> void:
 	add_child(nmi)
 
 
-func _build_wheels(meta: Dictionary, wheel_mat: Material) -> void:
+## `model_wheels`: wheel meshes the chassis model brought (DrivingCar.adopt_rig_parts), by name.
+func _build_wheels(meta: Dictionary, wheel_mat: Material, model_wheels: Dictionary = {}) -> void:
 	susp_rest = float(meta["susp_rest"])
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = float(meta["wheel_radius"])
@@ -93,11 +100,14 @@ func _build_wheels(meta: Dictionary, wheel_mat: Material) -> void:
 		var spin := Node3D.new()
 		spin.name = "wheel_%s_spin" % wn
 		susp.add_child(spin)
-		var geo := MeshInstance3D.new()
-		geo.name = "wheel_%s_geo" % wn
-		geo.mesh = cyl
-		geo.material_override = wheel_mat
-		geo.rotation = Vector3(0.0, 0.0, PI * 0.5)
+		var geo: Node3D = model_wheels.get(wn)
+		if geo == null:
+			var cyl_mi := MeshInstance3D.new()
+			cyl_mi.name = "wheel_%s_geo" % wn
+			cyl_mi.mesh = cyl
+			cyl_mi.material_override = wheel_mat
+			cyl_mi.rotation = Vector3(0.0, 0.0, PI * 0.5)
+			geo = cyl_mi
 		spin.add_child(geo)
 		_steer.append(steer)
 		_susp.append(susp)
