@@ -29,7 +29,8 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"interchange", "interchange_drive", "interchange_finish", "vehicle_models",
 	"playground", "playground_hill", "playground_landings", "long_travel"]
 ## Full models built on the rig hierarchy, which bring their own wheels (rig_model checks each).
-const RIG_MODELS: Array[String] = ["res://profiles/cars/city_bus.tres", "res://profiles/cars/garbage_truck.tres"]
+const RIG_MODELS: Array[String] = ["res://profiles/cars/city_bus.tres", "res://profiles/cars/garbage_truck.tres",
+	"res://profiles/cars/quad_atv.tres"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -1094,8 +1095,10 @@ func _t_rig_model() -> bool:
 		var model := car.get_node("ChassisModel")
 		var chassis := model.find_child("chassis", true, false) as Node3D
 		var origin_err := chassis.global_position.distance_to(car.global_position) if chassis else 99.0
-		# everything the model draws, in car space. Mirrors, steps and plates may stick out a little
-		# (and sideways a lot - mirrors), so only length and height are held to the collider.
+		# everything the model draws, in car space. It must cover the collider's length and height
+		# (a model shifted or scaled wrong doesn't), but fittings may stick out past it: mirrors
+		# sideways, a quad's handlebars above, bumpers and steps fore and aft. So: coverage of the
+		# box, plus a cap on how much bigger than the box the model may be.
 		var bb := AABB()
 		var first := true
 		for mi in model.find_children("*", "MeshInstance3D", true, false):
@@ -1103,8 +1106,9 @@ func _t_rig_model() -> bool:
 			var box: AABB = (car.global_transform.affine_inverse() * m.global_transform) * m.mesh.get_aabb()
 			bb = box if first else bb.merge(box)
 			first = false
-		var body_err := maxf(absf(bb.size.y - car.body_size.y), absf(bb.size.z - car.body_size.z)) \
-				+ absf(bb.get_center().y) + absf(bb.get_center().z)
+		var cover := bb.intersection(AABB(-car.body_size * 0.5, car.body_size))
+		var coverage := minf(cover.size.y / car.body_size.y, cover.size.z / car.body_size.z)
+		var oversize := maxf(bb.size.y / car.body_size.y, bb.size.z / car.body_size.z)
 		var model_wheels := 0
 		var ground_err := 0.0
 		for wn in DrivingCar.WHEEL_NAMES:
@@ -1115,18 +1119,38 @@ func _t_rig_model() -> bool:
 			var wb: AABB = geo.global_transform * geo.mesh.get_aabb()
 			ground_err = maxf(ground_err, absf(wb.position.y - car._ground_height_at(wb.get_center())))
 		var own_sw := car.get_node_or_null("SteeringColumn") == null and model.is_ancestor_of(car._steering_wheel)
+		# parts the model hangs on its wheel chains (the quad's brake calipers, on _susp) must come
+		# across to the car's chain at the same level - and not be left behind in the body
+		var chain_parts := _chain_parts(car)
+		var left_behind := model.find_children("wheel_*", "", true, false).size()
 		var ghost := GhostCar.new()
 		main.add_child(ghost)
 		var meta := car.build_take_meta()
 		meta["susp_rest"] = car.susp_rest
 		ghost.build(meta, null, null, null)
 		var ghost_ok := ghost.wheel_geos.all(func(g: Node3D) -> bool: return not ((g as MeshInstance3D).mesh is CylinderMesh)) \
-				and ghost.get_node_or_null("SteeringColumn") == null
-		var ok := origin_err < 0.001 and body_err < 0.2 and model_wheels == 4 and ground_err < 0.03 and own_sw and ghost_ok
-		_result(ok, "%s: chassis on car origin (%.4f m) · body %s vs collider %s · %d model wheels, lowest point %.3f m off the road · own steering wheel %s · ghost %s" % [
-			car.active_profile.display_name, origin_err, bb.size, car.body_size, model_wheels, ground_err, own_sw, ghost_ok])
+				and ghost.get_node_or_null("SteeringColumn") == null and _chain_parts(ghost) == chain_parts
+		var ok := origin_err < 0.001 and coverage > 0.97 and oversize < 1.3 and model_wheels == 4 \
+				and ground_err < 0.03 and own_sw and left_behind == 0 and ghost_ok
+		_result(ok, "%s: chassis on car origin (%.4f m) · body %s vs collider %s, covers %d %%, at most %.2f× its size · %d model wheels, lowest point %.3f m off the road · own steering wheel %s · wheel-chain parts %s, %d left in the body · ghost %s" % [
+			car.active_profile.display_name, origin_err, bb.size, car.body_size, roundi(coverage * 100.0), oversize,
+			model_wheels, ground_err, own_sw,
+			chain_parts if not chain_parts.is_empty() else "none", left_behind, ghost_ok])
 		return true
 	return false
+
+
+## Extra parts on each wheel chain, beyond the chain itself and the wheel: "level:name" per part.
+func _chain_parts(owner_node: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	for wn in DrivingCar.WHEEL_NAMES:
+		var node := owner_node
+		for level in DrivingCar.CHAIN_LEVELS:
+			node = node.get_node("wheel_%s_%s" % [wn, level])
+			for c in node.get_children():
+				if not String(c.name).begins_with("wheel_%s_" % wn):
+					out.append("%s:%s" % [level, c.name])
+	return out
 
 
 # === drive modes ===

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.20.0 — a real quad
+
+- **New quad model, ROVE Q4** (`models/vehicles/quad_atv/`): 871k triangles (474k of them in the
+  four knobbly wheels), textured PBR with clearcoat paint, open rider station, racks, winch and
+  static suspension/powertrain detail. Its handlebars ride on the steering-wheel node; the
+  quad's 1:1 steering ratio turns them exactly as far as the front wheels. Shown from the
+  rider cam. Dimensions unchanged, so handling, collider and takes are as before.
+- **Parts on a model's wheel chains come across too.** Anything besides the wheel mesh hung on
+  `wheel_XX_steer`, `_susp` or `_spin` is moved onto the car's node of the same name - the quad's
+  brake calipers sit on `_susp`, so they steer and travel with the wheel but don't spin. Live car
+  and replay ghost alike.
+- Tests: `rig_model` covers the quad, checks chain parts reach the car and ghost at the right
+  level with none left behind in the body, and now asks that the model *covers* the collider
+  (and is at most 30 % bigger) rather than matching it - a quad's handlebars stand above its box.
+
 ## 0.19.0 — a real garbage truck
 
 - **New garbage truck model, ORDA R9** (`models/vehicles/garbage_truck/`): 321k triangles,

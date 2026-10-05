@@ -55,7 +55,7 @@ func build(meta: Dictionary, body_mat: Material, wheel_mat: Material, accent_mat
 	elif cp.has("steering_ratio") and cp.has("driver_eye"):
 		_steering_wheel = DrivingCar.build_steering_wheel(self, _v3(cp["driver_eye"]), _v3(cp["steering_wheel_offset"]),
 				float(cp["steering_column_tilt_deg"]), float(cp["steering_wheel_radius"]), wheel_mat, accent_mat)
-	_build_wheels(meta, wheel_mat, rig.get("wheels", {}))
+	_build_wheels(meta, wheel_mat, rig.get("wheels", {}), rig.get("wheel_parts", {}))
 
 
 func _build_box(ext: Vector3, body_mat: Material, accent_mat: Material) -> void:
@@ -76,8 +76,10 @@ func _build_box(ext: Vector3, body_mat: Material, accent_mat: Material) -> void:
 	add_child(nmi)
 
 
-## `model_wheels`: wheel meshes the chassis model brought (DrivingCar.adopt_rig_parts), by name.
-func _build_wheels(meta: Dictionary, wheel_mat: Material, model_wheels: Dictionary = {}) -> void:
+## `model_wheels` / `model_parts`: wheel meshes and other wheel-chain parts the chassis model
+## brought (DrivingCar.adopt_rig_parts), by wheel name.
+func _build_wheels(meta: Dictionary, wheel_mat: Material, model_wheels: Dictionary = {},
+		model_parts: Dictionary = {}) -> void:
 	susp_rest = float(meta["susp_rest"])
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = float(meta["wheel_radius"])
@@ -109,6 +111,8 @@ func _build_wheels(meta: Dictionary, wheel_mat: Material, model_wheels: Dictiona
 			cyl_mi.rotation = Vector3(0.0, 0.0, PI * 0.5)
 			geo = cyl_mi
 		spin.add_child(geo)
+		if model_parts.has(wn):
+			DrivingCar.attach_wheel_parts(model_parts[wn], steer, susp, spin)
 		_steer.append(steer)
 		_susp.append(susp)
 		_spin.append(spin)

@@ -26,6 +26,7 @@ enum Drive { RWD, FWD, AWD }
 
 const WHEEL_COUNT: int = 4
 const WHEEL_NAMES: PackedStringArray = ["FL", "FR", "RL", "RR"]
+const CHAIN_LEVELS: PackedStringArray = ["steer", "susp", "spin"]   ## wheel_XX_<level>, outermost first
 const GRAVITY: float = 9.81
 const BUMP_STOP_DEPTH: float = 0.12
 const LAYER_WORLD: int = 1
@@ -120,6 +121,8 @@ var audio: CarAudio
 var _steering_wheel: Node3D
 ## Wheel meshes the chassis model brought with it (see adopt_rig_parts), by wheel name.
 var _model_wheels: Dictionary = {}
+## Other parts it hangs on the wheel chains, by wheel name then level (see adopt_rig_parts).
+var _model_wheel_parts: Dictionary = {}
 var body_color: Color = Color(0.86, 0.42, 0.10)
 
 ## Drive mode (see scripts/profiles/drive_mode.gd)
@@ -369,6 +372,7 @@ func _build_chassis_model() -> Node3D:
 	var inst := chassis_scene.instantiate()
 	var rig := adopt_rig_parts(inst)
 	_model_wheels = rig.get("wheels", {})
+	_model_wheel_parts = rig.get("wheel_parts", {})
 	var sw: Node3D = rig.get("steering_wheel")
 	var holder := Node3D.new()
 	holder.name = "ChassisModel"
@@ -388,8 +392,11 @@ func _build_chassis_model() -> Node3D:
 ## (wheel_XX_steer → _susp → _spin → _geo) and optionally a `steering_wheel`, as made from a bind
 ## car - brings its own wheels. This puts the model's `chassis` on the car origin (the file has it
 ## at ride height) and lifts each wheel_XX_geo out, keeping its pose relative to its spin node, for
-## the car's own chain to drive. The model's now-empty wheel chains are removed.
-## Returns {"wheels": {"FL": geo, ...}, "steering_wheel": node or null}, or {} for any other model.
+## the car's own chain to drive. Anything else hung on a chain node (the quad's brake calipers ride
+## on wheel_XX_susp: they steer and travel, but don't spin) is lifted out the same way, to go on the
+## car's node of the same name - see attach_wheel_parts. The model's emptied chains are removed.
+## Returns {"wheels": {"FL": geo, ...}, "wheel_parts": {"FL": {"steer": [..], "susp": [..],
+## "spin": [..]}, ...}, "steering_wheel": node or null}, or {} for any other model.
 ## Shared with the replay ghost.
 static func adopt_rig_parts(inst: Node) -> Dictionary:
 	var root := inst as Node3D
@@ -408,15 +415,45 @@ static func adopt_rig_parts(inst: Node) -> Dictionary:
 		rel = (n as Node3D).transform * rel
 		n = n.get_parent()
 	root.transform = rel.affine_inverse()
+	var parts := {}
 	for wn in WHEEL_NAMES:
 		var geo: Node3D = wheels[wn]
-		geo.get_parent().remove_child(geo)
-		geo.owner = null   # it now belongs to the car's chain, not the model's scene
+		_lift(geo)
+		var levels := {"steer": [], "susp": [], "spin": []}
 		var chain := chassis.find_child("wheel_%s_steer" % wn, true, false)
+		var node := chain
+		for k in CHAIN_LEVELS.size():
+			if node == null:
+				break
+			var next: Node = node.find_child("wheel_%s_%s" % [wn, CHAIN_LEVELS[k + 1]], false, false) \
+					if k + 1 < CHAIN_LEVELS.size() else null
+			for c in node.get_children():
+				if c != next and c is Node3D:
+					_lift(c)
+					levels[CHAIN_LEVELS[k]].append(c)
+			node = next
+		parts[wn] = levels
 		if chain:
 			chain.get_parent().remove_child(chain)
 			chain.free()
-	return {"wheels": wheels, "steering_wheel": chassis.find_child("steering_wheel", true, false) as Node3D}
+	return {"wheels": wheels, "wheel_parts": parts,
+			"steering_wheel": chassis.find_child("steering_wheel", true, false) as Node3D}
+
+
+## Out of the model's scene, keeping its local transform, to be re-parented onto the car.
+static func _lift(n: Node) -> void:
+	n.get_parent().remove_child(n)
+	n.owner = null   # it now belongs to the car's chain, not the model's scene
+	for c in n.find_children("*", "", true, false):
+		c.owner = null
+
+
+## Hangs the parts adopt_rig_parts lifted off one wheel's chain onto the car's own chain.
+static func attach_wheel_parts(levels: Dictionary, steer: Node3D, susp: Node3D, spin: Node3D) -> void:
+	for level in levels:
+		var target: Node3D = {"steer": steer, "susp": susp, "spin": spin}[level]
+		for p: Node3D in levels[level]:
+			target.add_child(p)
 
 
 ## Torus rim + a spoke + a marker at 12 o'clock, on a tilted column. Returns the node that
@@ -514,6 +551,8 @@ func _build_wheels() -> void:
 			cyl_mi.rotation = Vector3(0.0, 0.0, PI * 0.5)   # cylinder axis Y → X
 			geo = cyl_mi
 		spin.add_child(geo)
+		if _model_wheel_parts.has(wn):
+			attach_wheel_parts(_model_wheel_parts[wn], steer, susp, spin)
 
 		_steer_nodes.append(steer)
 		_susp_nodes.append(susp)
