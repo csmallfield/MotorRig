@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0 — a real garbage truck
+
+- **New garbage truck model, ORDA R9** (`models/vehicles/garbage_truck/`): 321k triangles,
+  textured PBR, a three-seat cab with see-through glass, static compactor, hopper and bin lifter.
+  Built on the rig hierarchy like the bus, so it drives its own wheels and steering wheel; shown
+  from the driver cam. Dimensions are unchanged, so handling, collider and takes are as before.
+- Tests: `rig_model` now runs once per full model (`RIG_MODELS`), and measures everything the
+  model draws rather than `body_geo` alone - the truck's cab and compactor are separate meshes.
+
 ## 0.18.0 — a real city bus
 
 - **New city bus model, LINEA 12** (`models/vehicles/city_bus/`): 330k triangles, textured PBR,

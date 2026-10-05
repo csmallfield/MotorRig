@@ -1,0 +1,44 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://blflp3y2cbg7o"
+path.s3tc="res://.godot/imported/ROVE_Q4_quad_atv_v01_Tread_2K_ORM.png-3a31d48467ef87f1e4a81272c3f7241b.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "d8e04492ca4ad230c6671e0f8967b425"
+}
+
+[deps]
+
+source_file="res://models/vehicles/quad_atv/ROVE_Q4_quad_atv_v01_Tread_2K_ORM.png"
+dest_files=["res://.godot/imported/ROVE_Q4_quad_atv_v01_Tread_2K_ORM.png-3a31d48467ef87f1e4a81272c3f7241b.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/uastc_level=0
+compress/rdo_quality_loss=0.0
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=8
+roughness/src_normal="res://models/vehicles/quad_atv/ROVE_Q4_quad_atv_v01_Tread_2K_Normal.png"
+process/channel_remap/red=0
+process/channel_remap/green=1
+process/channel_remap/blue=2
+process/channel_remap/alpha=3
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

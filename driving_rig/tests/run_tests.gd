@@ -28,6 +28,8 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"mode_drivable", "reverse_gear", "watch_mode", "layout", "audio_files", "audio_engine", "audio_impact",
 	"interchange", "interchange_drive", "interchange_finish", "vehicle_models",
 	"playground", "playground_hill", "playground_landings", "long_travel"]
+## Full models built on the rig hierarchy, which bring their own wheels (rig_model checks each).
+const RIG_MODELS: Array[String] = ["res://profiles/cars/city_bus.tres", "res://profiles/cars/garbage_truck.tres"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -61,11 +63,14 @@ func _initialize() -> void:
 			for e: Dictionary in root.get_node("SimConfig").scan_modes():
 				if e["profile"] and not String(e["path"]).ends_with("stunt.tres"):
 					queue.append("drivable:%s" % e["path"])   # Stunt is meant to tip over
+		elif a == "rig_model":
+			for path in RIG_MODELS:
+				queue.append("rig:%s" % path)
 		elif a == "drive_modes":
 			for e: Dictionary in root.get_node("SimConfig").scan_modes():
 				if e["profile"]:
 					queue.append("mode:%s" % e["path"])
-		elif a in ALL or a.begins_with("car:") or a.begins_with("world:") or a.begins_with("mode:"):
+		elif a in ALL or a.begins_with("car:") or a.begins_with("world:") or a.begins_with("mode:") or a.begins_with("rig:"):
 			queue.append(a)   # e.g. car:res://profiles/cars/suv_awd.tres:corner
 		else:
 			print("unknown test: ", a)
@@ -101,6 +106,8 @@ func _physics_process(_d: float) -> bool:
 		fn = "_t_world"
 	elif cur.begins_with("mode:"):
 		fn = "_t_mode"
+	elif cur.begins_with("rig:"):
+		fn = "_t_rig_model"
 	elif cur.begins_with("drivable:"):
 		fn = "_t_drivable"
 	# most tests are done inside a minute of sim; driving four ramps end to end is not
@@ -166,6 +173,8 @@ func _result(ok: bool, detail: String) -> void:
 		label = "world " + cur.get_file().get_basename()
 	elif cur.begins_with("mode:"):
 		label = "mode " + cur.get_file().get_basename()
+	elif cur.begins_with("rig:"):
+		label = "rig " + cur.get_file().get_basename()
 	elif cur.begins_with("drivable:"):
 		label = "drivable " + cur.get_file().get_basename()
 	print("%s  %-22s %s" % ["PASS" if ok else "FAIL", label, detail])
@@ -1064,14 +1073,14 @@ func _t_custom_chassis() -> bool:
 	return false
 
 
-## A model built on the rig hierarchy (the city bus) brings its own wheels and steering wheel:
+## A model built on the rig hierarchy (the city bus, the garbage truck) brings its own wheels and steering wheel:
 ## its `chassis` lands on the car origin, its body fills the collider, the car's suspension chain
 ## drives its wheel meshes and they sit on the road, and the replay ghost does the same.
 func _t_rig_model() -> bool:
 	if t == 1:
 		main.queue_free()
 		main = load("res://scenes/main.tscn").instantiate()
-		main.get_node("Car").profile = load("res://profiles/cars/city_bus.tres")
+		main.get_node("Car").profile = load(cur.substr(4))
 		main.get_node("Terrain").profile = load(REF_WORLD)
 		main.get_node("Recorder").takes_dir = TAKES_DIR
 		root.add_child(main)
@@ -1085,9 +1094,17 @@ func _t_rig_model() -> bool:
 		var model := car.get_node("ChassisModel")
 		var chassis := model.find_child("chassis", true, false) as Node3D
 		var origin_err := chassis.global_position.distance_to(car.global_position) if chassis else 99.0
-		var body := model.find_child("body_geo", true, false) as MeshInstance3D
-		var bb: AABB = (car.global_transform.affine_inverse() * body.global_transform) * body.mesh.get_aabb()
-		var body_err := (bb.get_center()).length() + (bb.size - car.body_size).abs().length()
+		# everything the model draws, in car space. Mirrors, steps and plates may stick out a little
+		# (and sideways a lot - mirrors), so only length and height are held to the collider.
+		var bb := AABB()
+		var first := true
+		for mi in model.find_children("*", "MeshInstance3D", true, false):
+			var m := mi as MeshInstance3D
+			var box: AABB = (car.global_transform.affine_inverse() * m.global_transform) * m.mesh.get_aabb()
+			bb = box if first else bb.merge(box)
+			first = false
+		var body_err := maxf(absf(bb.size.y - car.body_size.y), absf(bb.size.z - car.body_size.z)) \
+				+ absf(bb.get_center().y) + absf(bb.get_center().z)
 		var model_wheels := 0
 		var ground_err := 0.0
 		for wn in DrivingCar.WHEEL_NAMES:
@@ -1105,9 +1122,9 @@ func _t_rig_model() -> bool:
 		ghost.build(meta, null, null, null)
 		var ghost_ok := ghost.wheel_geos.all(func(g: Node3D) -> bool: return not ((g as MeshInstance3D).mesh is CylinderMesh)) \
 				and ghost.get_node_or_null("SteeringColumn") == null
-		var ok := origin_err < 0.001 and body_err < 0.05 and model_wheels == 4 and ground_err < 0.03 and own_sw and ghost_ok
-		_result(ok, "chassis on car origin (%.4f m) · body %s vs collider %s · %d model wheels, lowest point %.3f m off the road · own steering wheel %s · ghost %s" % [
-			origin_err, bb.size, car.body_size, model_wheels, ground_err, own_sw, ghost_ok])
+		var ok := origin_err < 0.001 and body_err < 0.2 and model_wheels == 4 and ground_err < 0.03 and own_sw and ghost_ok
+		_result(ok, "%s: chassis on car origin (%.4f m) · body %s vs collider %s · %d model wheels, lowest point %.3f m off the road · own steering wheel %s · ghost %s" % [
+			car.active_profile.display_name, origin_err, bb.size, car.body_size, model_wheels, ground_err, own_sw, ghost_ok])
 		return true
 	return false
 
