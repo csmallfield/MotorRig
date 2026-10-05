@@ -2,7 +2,7 @@
 
 Low-poly stand-ins for the ten vehicles — better than a cube, deliberately not a hero asset.
 Already assigned: each car profile's `chassis_scene` points at its `.glb` - except the city bus,
-garbage truck and quad, which now use full models (below).
+garbage truck, quad and dune buggy, which now use full models (below).
 
 ## Full models
 
@@ -11,8 +11,9 @@ garbage truck and quad, which now use full models (below).
 | `vehicles/city_bus/` | LINEA 12 city bus | 329,836 | textured PBR, cabin with 31 seats, see-through glass, its own wheels and steering wheel - see its README |
 | `vehicles/garbage_truck/` | ORDA R9 rear-loading refuse truck | 321,238 | textured PBR, three-seat cab, see-through glass, static compactor and bin lifter, its own wheels and steering wheel - see its README |
 | `vehicles/quad_atv/` | ROVE Q4 utility-sport quad | 870,609 | textured PBR, open rider station, racks and winch, static suspension and powertrain detail, its own wheels, brake calipers (steer and travel, don't spin) and handlebars on the steering-wheel node - see its README |
+| `vehicles/dune_buggy/` | SABLE X4 two-seat dune buggy | 611,988 | textured PBR, open cockpit with two bucket seats, roll cage, exposed rear engine, its own wheels, brake calipers and steering wheel - see its README |
 
-All three are built on the rig hierarchy, so the car drives the model's own wheels (see the main README,
+All four are built on the rig hierarchy, so the car drives the model's own wheels (see the main README,
 "Models with their own wheels"). Their embedded textures are extracted next to the `.glb` on import;
 `review/` holds offline renders and is kept out of the game with a `.gdignore`.
 
@@ -27,7 +28,7 @@ All three are built on the rig hierarchy, so the car drives the model's own whee
 | `vehicles/garbage_truck.glb` | Garbage Truck (not used - see below) | 156 | 2.50 × 3.40 × 9.49 m |
 | `vehicles/quad_atv.glb` | Quad ATV (not used - see below) | 132 | 0.66 × 0.55 × 1.83 m |
 | `vehicles/monster_truck.glb` | Monster Truck | 192 | 2.60 × 1.25 × 4.95 m |
-| `vehicles/dune_buggy.glb` | Dune Buggy | 204 | 1.54 × 1.04 × 3.46 m |
+| `vehicles/dune_buggy.glb` | Dune Buggy (not used - see below) | 204 | 1.54 × 1.04 × 3.46 m |
 
 Metres, Y up, −Z forward, origin at the chassis centre — the rig's convention, so they drop
 straight in with no transform.

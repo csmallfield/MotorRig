@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0 — a real dune buggy
+
+- **New dune buggy model, SABLE X4** (`models/vehicles/dune_buggy/`): 612k triangles, textured
+  PBR with clearcoat paint, open two-seat cockpit, roll cage, exposed rear engine and radiator,
+  its own wheels, brake calipers and steering wheel. Shown from the driver cam. Dimensions
+  unchanged, so handling, collider and takes are as before. No code changes: it follows the same
+  rig contract as the quad.
+- Tests: `rig_model` covers the buggy.
+
 ## 0.20.0 — a real quad
 
 - **New quad model, ROVE Q4** (`models/vehicles/quad_atv/`): 871k triangles (474k of them in the

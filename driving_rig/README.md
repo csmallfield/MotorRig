@@ -127,8 +127,8 @@ cylinder, and turns the model's `steering_wheel` instead of building one. Anythi
 a wheel chain moves over with it at the same level - parts on `wheel_XX_susp` (the quad's brake
 calipers) steer and travel but don't spin. Everything else in the file rides along with the body. In the `.glb`'s import settings turn **Use Node Type
 Suffixes off**, or Godot reads the `_wheel` in `steering_wheel` as "make a VehicleWheel3D". The
-city bus, garbage truck and quad (`models/vehicles/city_bus/`, `garbage_truck/`, `quad_atv/`) are
-built this way.
+city bus, garbage truck, quad and dune buggy (`models/vehicles/city_bus/`, `garbage_truck/`,
+`quad_atv/`, `dune_buggy/`) are built this way.
 Maya keeps the proxy cube (it can't read Godot scenes): parent your own model under `chassis`.
 
 ## Sound
@@ -505,7 +505,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
 | custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |
-| rig_model | each full model (city bus, garbage truck, quad): its `chassis` lands on the car origin, it covers the collider (fittings may stick out up to 30 %), the car drives its own wheel meshes and they touch the road, its steering wheel is used, parts on its wheel chains (calipers) come across at the same level, the ghost does the same |
+| rig_model | each full model (city bus, garbage truck, quad, dune buggy): its `chassis` lands on the car origin, it covers the collider (fittings may stick out up to 30 %), the car drives its own wheel meshes and they touch the road, its steering wheel is used, parts on its wheel chains (calipers) come across at the same level, the ghost does the same |
 | audio_files | per-vehicle folder wins, fallback works, rpm layers sorted, a missing sound is silent |
 | audio_engine | rpm stays inside idle…redline and shifts through the gears accelerating |
 | audio_impact | driving hard reports no impacts; hitting a wall reports one, scaled by how hard |

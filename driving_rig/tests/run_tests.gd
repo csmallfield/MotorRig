@@ -30,7 +30,7 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 	"playground", "playground_hill", "playground_landings", "long_travel"]
 ## Full models built on the rig hierarchy, which bring their own wheels (rig_model checks each).
 const RIG_MODELS: Array[String] = ["res://profiles/cars/city_bus.tres", "res://profiles/cars/garbage_truck.tres",
-	"res://profiles/cars/quad_atv.tres"]
+	"res://profiles/cars/quad_atv.tres", "res://profiles/cars/dune_buggy.tres"]
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
