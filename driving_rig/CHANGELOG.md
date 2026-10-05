@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.22.0 — a real hatchback
+
+- **New hatchback model, VELA 1600 S** (`models/vehicles/hatch_fwd/`): a late-80s three-door,
+  1.05M triangles in 608 meshes, textured PBR with clearcoat, a full cabin and see-through glass,
+  its own wheels (each a group of 33 meshes), front brake calipers and steering wheel. Shown from
+  the driver cam. Wheelbase, track and wheels unchanged, so handling and takes are as before.
+- **Known issue, accepted for now:** the model's roof is 33 cm above the 0.95 m collision box
+  (nose 14 cm and tail 6 cm past it). Driving is unaffected; in a rollover the roof sinks into
+  the ground before the box lands. The collider is unchanged.
+- Tests: `rig_model` covers the hatchback, handles a wheel that is a group of meshes, and takes a
+  per-model allowance for drawing bigger than the collider (`RIG_OVERSIZE`, hatchback 1.4x).
+
 ## 0.21.0 — a real dune buggy
 
 - **New dune buggy model, SABLE X4** (`models/vehicles/dune_buggy/`): 612k triangles, textured

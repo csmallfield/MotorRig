@@ -2,7 +2,7 @@
 
 Low-poly stand-ins for the ten vehicles — better than a cube, deliberately not a hero asset.
 Already assigned: each car profile's `chassis_scene` points at its `.glb` - except the city bus,
-garbage truck, quad and dune buggy, which now use full models (below).
+garbage truck, quad, dune buggy and hatchback, which now use full models (below).
 
 ## Full models
 
@@ -12,15 +12,16 @@ garbage truck, quad and dune buggy, which now use full models (below).
 | `vehicles/garbage_truck/` | ORDA R9 rear-loading refuse truck | 321,238 | textured PBR, three-seat cab, see-through glass, static compactor and bin lifter, its own wheels and steering wheel - see its README |
 | `vehicles/quad_atv/` | ROVE Q4 utility-sport quad | 870,609 | textured PBR, open rider station, racks and winch, static suspension and powertrain detail, its own wheels, brake calipers (steer and travel, don't spin) and handlebars on the steering-wheel node - see its README |
 | `vehicles/dune_buggy/` | SABLE X4 two-seat dune buggy | 611,988 | textured PBR, open cockpit with two bucket seats, roll cage, exposed rear engine, its own wheels, brake calipers and steering wheel - see its README |
+| `vehicles/hatch_fwd/` | VELA 1600 S late-80s three-door hatchback | 1,051,578 | textured PBR, full cabin, see-through glass, 608 separate meshes (each wheel is a group of 33), its own wheels, front calipers and steering wheel. **Roof is 33 cm above the 0.95 m collision box** - accepted for now, so in a rollover the roof sinks into the ground - see its README |
 
-All four are built on the rig hierarchy, so the car drives the model's own wheels (see the main README,
+All five are built on the rig hierarchy, so the car drives the model's own wheels (see the main README,
 "Models with their own wheels"). Their embedded textures are extracted next to the `.glb` on import;
 `review/` holds offline renders and is kept out of the game with a `.gdignore`.
 
 | file | vehicle | triangles | size (W × H × L) |
 |---|---|---|---|
 | `vehicles/sedan_awd.glb` | Proxy Sedan AWD | 192 | 1.70 × 1.00 × 4.40 m |
-| `vehicles/hatch_fwd.glb` | Hatchback FWD | 192 | 1.60 × 0.95 × 4.00 m |
+| `vehicles/hatch_fwd.glb` | Hatchback FWD (not used - see below) | 192 | 1.60 × 0.95 × 4.00 m |
 | `vehicles/sports_rwd.glb` | Sports RWD | 192 | 1.76 × 0.80 × 4.50 m |
 | `vehicles/suv_awd.glb` | SUV AWD | 192 | 1.79 × 1.25 × 4.80 m |
 | `vehicles/limo.glb` | Stretch Limo | 192 | 2.00 × 1.45 × 8.50 m |
