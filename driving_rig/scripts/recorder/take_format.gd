@@ -17,16 +17,24 @@ const O_WHEELS: int = 25
 const W_STRIDE: int = 12    # compression, steer, spin, grounded, cp3, cn3, slip_long, slip_lat
 ## Every camera, every tick (v2 optional channels, since 0.7.0). Order is the contract:
 ## the camera rig, the recorder, the file and the Maya importer all use it.
+## Broadcast coverage first (indices 0-13, unchanged since 0.7.0 - a take written then still
+## maps onto this list), then the wild bank: near-misses, overshoot, lens moves that draw
+## attention to themselves, and a camera that loses the car on purpose. New cameras go on the
+## END, so old takes keep their camera.active indices.
 const CAMERA_NAMES: PackedStringArray = ["chase", "driver", "heli", "front", "side", "wheel",
-	"bumper", "trackside", "orbit", "crane", "drone", "lowchase", "pan", "rearwheel"]
+	"bumper", "trackside", "orbit", "crane", "drone", "lowchase", "pan", "rearwheel",
+	"handheld", "overtake", "kamikaze", "vertigo", "roadkill", "helilost", "whip", "crashzoom",
+	"skim", "crossing", "fisheye", "fisheye_rear"]
+## Where the wild bank starts. Everything before this is safe framing.
+const WILD_FROM: int = 14
 const O_CAMS: int = O_WHEELS + W_STRIDE * 4   # 73
 const C_STRIDE: int = 8                        # p3, q4, fov
 ## Derived from CAMERA_NAMES: adding a camera must not silently overlap the next field.
 ## MUST equal O_CAMS + C_STRIDE * CAMERA_NAMES.size(). It can't be written that way - other
 ## scripts can't resolve a const that calls a method - so the layout test asserts it instead.
 ## Get this wrong when adding a camera and the extra cameras overwrite the next field.
-const O_ACTIVE: int = O_CAMS + C_STRIDE * 14   # index into CAMERA_NAMES (-1 = none)
-const STRIDE: int = O_ACTIVE + 1               # 186
+const O_ACTIVE: int = O_CAMS + C_STRIDE * 26   # index into CAMERA_NAMES (-1 = none)
+const STRIDE: int = O_ACTIVE + 1               # 282
 
 const SAMPLES_OPEN: String = '"samples":['
 const FORMAT_NAME: String = "driving_rig_take"
@@ -195,9 +203,15 @@ static func _store_channels(chs: Dictionary, n: int) -> Dictionary:
 		var comps: int = ch["comps"]
 		var bases := group_bases(ch)
 		if is_grouped(ch):
-			if not (v is Array and (v as Array).size() == bases.size()):
+			if not (v is Array):
 				return {"error": "%s: expected %d entries" % [ch["name"], bases.size()]}
-			for g in bases.size():
+			var got: int = (v as Array).size()
+			# Fewer camera blocks than this build knows about means an older take, written
+			# before the wild bank existed. Cameras are only ever appended, so the blocks it
+			# does have line up by position; the rest stay zero and read as "not recorded".
+			if got > bases.size() or (got != bases.size() and not ch.get("cam", false)):
+				return {"error": "%s: expected %d entries, got %d" % [ch["name"], bases.size(), got]}
+			for g in got:
 				var e := _unpack(d, n, bases[g], comps, v[g], ch["name"])
 				if e != "":
 					return {"error": e}

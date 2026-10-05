@@ -1,4 +1,4 @@
-# Driving Rig — v0.16.1
+# Driving Rig — v0.17.0
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
@@ -34,9 +34,15 @@ Recover/reset are locked while a take is running so every take is physically con
 
 ## Cameras
 
-All camera distances scale with the vehicle, so a 12 m bus is framed like a sedan.
+Camera distances scale with the vehicle **and with its top speed**, so a 12 m bus is framed like
+a sedan, and a plant that suits a 95 km/h bus isn't passed before it has panned by a 280 km/h
+sports car.
 
-Fourteen cameras, all running every tick (so switching never jumps, and all are recorded):
+**Twenty-six cameras in two banks**, all running every tick (so switching never jumps, and all
+are recorded). `C` / gamepad `Y` cycles within a bank; **`B` / D-pad right switches bank**. While
+watching a take there is a third bank holding the take's own recorded cameras.
+
+Fourteen broadcast cameras — safe framing, the car always held:
 
 | key | camera | |
 |---|---|---|
@@ -54,6 +60,38 @@ Fourteen cameras, all running every tick (so switching never jumps, and all are 
 | 12 | lowchase | knee-high behind the car on a long lens — speed and dust |
 | 13 | pan | locked-off tripod that only pans and tilts; replants when the car gets far away |
 | 14 | rearwheel | rigid mount at the rear wheel, looking forward along the flank |
+
+Then the **wild bank**, ported back from Full Throttle Flux (which got these cameras from this
+rig in the first place and grew them). Everything above is broadcast coverage; these deliberately
+break it — near-misses, overshoot, lens moves that draw attention to themselves, and a camera
+that loses the car:
+
+| key | camera | |
+|---|---|---|
+| 1 | handheld | operator at the roadside, wide lens, never steady, always a beat behind |
+| 2 | overtake | comes up from behind, draws level, pulls ahead, drops back |
+| 3 | kamikaze | flown head-on against the direction of travel; contact lands mid-take |
+| 4 | vertigo | dolly and zoom opposed: the car holds its size, the background stretches |
+| 5 | roadkill | on the surface, in the car's path, not beside it |
+| 6 | helilost | drifts ahead, gets left behind, hauls back on |
+| 7 | whip | dead still on a wide lens, then snaps through the pass |
+| 8 | crashzoom | punch in, hold, punch out, hold wide |
+| 9 | skim | ahead of the car looking back, a hand's width off the ground |
+| | crossing | cable cam at its own constant speed; sometimes it meets the car |
+| | fisheye | hard mount on the nose looking back down the body, widest lens in the rig |
+| | fisheye_rear | the same behind the tail, half a cycle out of step |
+
+Measured over a drive: the wild bank holds the car in frame 95 % of the time on average
+(`helilost` lowest at 79 %, by design), kamikaze passes within 3.2 m and roadkill within 2.3 m.
+
+Where FTF's cameras follow a track spline, these use a short forward projection of the car's own
+path — where it will be if it holds its speed and rate of turn — so a plant lands on the corner
+rather than out in the scenery. That is honest for a second or two, which is what a plant needs.
+A later pass over a recorded take could use the take's own future instead, exactly.
+
+**Takes are about 50 % bigger** with the full set recorded: 1.2 MB for 10 s, against 800 KB at
+fourteen cameras. Cameras are only ever appended to the list, so takes recorded before this
+version still load and keep their camera indices.
 
 Tracking cameras never go below the terrain. In a replay they all follow the ghost — watch
 any take from any angle; the driver slot becomes the take's recorded camera.
@@ -450,7 +488,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | scene_export | 7 OBJs, ground 160,801 verts / 320k tris; corner vertex on the height function to 0.0000 cm |
 | browser | list, replay, camera follow, input lock and restore |
 | menu | lists every profile on disk, selects, warns on tick mismatch, flags invalid files |
-| cameras | 14 cameras x 2,400 ticks in the hills: car in frame ≥ 97 %, rigid mounts fixed, never under ground, cycle + 1-9 |
+| cameras | 26 cameras x 2,400 ticks: broadcast in frame ≥ 97 %, wild bank ≥ 15 % each (they are meant to break framing), kamikaze and roadkill pass close, no camera under ground or adrift, rigid mounts fixed, both banks cycle |
 | layout | the sample layout matches the camera list (a mismatch silently corrupts every take) |
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |

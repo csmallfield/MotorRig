@@ -10,6 +10,13 @@ extends SceneTree
 ## Each test instantiates a fresh main scene. Takes go to user://test_takes, never your takes.
 ## Exit code = number of failures.
 
+## Fixed to one point on the car: their local transform must never move at all.
+const RIGID_CAMS: PackedStringArray = ["wheel", "bumper", "driver", "rearwheel"]
+## Also mounted on the car, but sliding between mounts, so they are exempt from the ground
+## check (they sit under the roof line) while still having to stay on the vehicle.
+const MOUNTED_CAMS: PackedStringArray = ["fisheye", "fisheye_rear"]
+## Cameras that work precisely by being on the deck. The rest keep 30 cm of air.
+const LOW_CAMS: Dictionary = {"skim": 0.12, "roadkill": 0.05}
 const TAKES_DIR: String = "user://test_takes"
 const REF_CAR: String = "res://profiles/cars/sedan_awd.tres"
 const REF_WORLD: String = "res://profiles/worlds/default_hills.tres"
@@ -458,7 +465,7 @@ func _t_record_replay() -> bool:
 				and (meta.get("car_params", {}) as Dictionary).get("mass", 0.0) == 1200.0
 		var ok: bool = player.n == expected and compared == player.n and max_pos < 1e-4 and max_rot < 1e-3 \
 				and int(hdr["summary"]["samples"]) == expected and png_ok and player.format_version == 2 \
-				and str(st["saved"]).ends_with(".json.gz") and kb < 800.0 and prec[0] <= 1.0 and profiles_ok
+				and str(st["saved"]).ends_with(".json.gz") and kb < _take_kb_cap() and prec[0] <= 1.0 and profiles_ok
 		_result(ok, "v%d %s, %.0f KB for 10 s · %d samples (expect %d) · every channel within its stated precision of the raw data (worst: %s at %.2f×) · ghost vs live: wheel pos err %.4f mm, rot err %.6f · thumbnail %s" % [
 			player.format_version, str(st["saved"]).get_file(), kb, player.n, expected, prec[1], prec[0],
 			max_pos * 1000.0, max_rot, png_ok] + (" · profiles in meta" if profiles_ok else " · PROFILES MISSING FROM META"))
@@ -475,6 +482,13 @@ func _log_live() -> void:
 
 ## Largest |a − b| over all channels, as a multiple of each channel's rounding step
 ## (0.5 · 10^-decimals; 0/1 flags use 0.5). ≤ 1.0 means every value honours its precision.
+## 10 s of take, as KB. Recording every camera is the point, so the cap scales with the layout
+## rather than being a number to edit whenever a camera is added: 800 KB was the measured size
+## at 14 cameras, plus 10 % headroom.
+func _take_kb_cap() -> float:
+	return 800.0 * float(TakeFormat.STRIDE) / 186.0 * 1.1
+
+
 func _worst_channel_error(a: PackedFloat64Array, n: int, b: Callable, skip_optional: bool = false) -> Array:
 	var worst := 0.0
 	var worst_name := "-"
@@ -796,6 +810,9 @@ func _t_cameras() -> bool:
 		st["nonfinite"] = 0
 		st["changed"] = []
 		st["rigid0"] = {}
+		st["near"] = {}
+		st["far"] = 0.0
+		st["mount_far"] = 0.0
 		rig.camera_changed.connect(func(n: String) -> void: st["changed"].append(n))
 		# check after the rig has placed the cameras this tick (priority 200), not before the
 		# physics step moves the car
@@ -809,12 +826,16 @@ func _t_cameras() -> bool:
 		main.add_child(logger)
 	drive(clampf((60.0 - kmh()) * 0.3, 0.0, 1.0), 0.0, 0.35 * sin(sec() * 0.8))
 	if t == 240 * 12:
-		var start := rig.active_camera
 		var visited := {}
-		for k in rig.cycle_list().size():
-			rig.cycle(1)
-			visited[rig.camera_label(rig.active_camera)] = true
-		var wraps := rig.active_camera == start
+		var wraps := true
+		for b in 2:                      # C cycles within a bank; B switches bank
+			rig.set_bank(b)
+			var start := rig.active_camera
+			for k in rig.cycle_list().size():
+				rig.cycle(1)
+				visited[rig.camera_label(rig.active_camera)] = true
+			wraps = wraps and rig.active_camera == start
+		rig.set_bank(0)
 		rig.select_index(2)
 		var direct := rig.camera_label(rig.active_camera) == "heli"
 		var worst := 2.0
@@ -824,13 +845,38 @@ func _t_cameras() -> bool:
 			if frac < worst:
 				worst = frac
 				worst_n = n
+		# The wild bank is allowed to break framing - that is the point - but a camera that
+		# almost never has the car is just broken, so each one still has to hold it some of
+		# the time.
+		var wild_worst := 2.0
+		var wild_worst_n := ""
+		var wild_sum := 0.0
+		var wild_n := 0
+		for i in range(TakeFormat.WILD_FROM, TakeFormat.CAMERA_NAMES.size()):
+			var wn: String = TakeFormat.CAMERA_NAMES[i]
+			if wn in RIGID_CAMS:
+				continue
+			var frac: float = float(st["seen"].get(wn, 0)) / st["frames"]
+			wild_sum += frac
+			wild_n += 1
+			if frac < wild_worst:
+				wild_worst = frac
+				wild_worst_n = wn
+		# and the near-miss cameras have to actually pass close
+		var kami: float = float(st["near"].get("kamikaze", 1e9))
+		var road: float = float(st["near"].get("roadkill", 1e9))
 		var heli_h := rig.cameras[2].global_position.y - car.global_position.y
 		var ok: bool = worst > 0.97 and st["rigid_err"] < 1e-4 and st["under"] == 0 and st["nonfinite"] == 0 \
 				and visited.size() == TakeFormat.CAMERA_NAMES.size() and wraps and direct \
-				and heli_h > 8.0 and st["changed"].size() >= TakeFormat.CAMERA_NAMES.size()
-		_result(ok, "%d ticks x %d cams · car in frame >= %.1f%% (worst %s) · rigid mounts drift %.6f m · below ground %d · heli +%.0f m · cycle %d/%d wraps %s · 1-9 jump %s" % [
-			st["frames"], TakeFormat.CAMERA_NAMES.size(), worst * 100.0, worst_n, st["rigid_err"],
-			st["under"], heli_h, visited.size(), TakeFormat.CAMERA_NAMES.size(), wraps, direct])
+				and heli_h > 8.0 and st["changed"].size() >= TakeFormat.CAMERA_NAMES.size() \
+				and wild_worst > 0.15 and wild_sum / maxf(wild_n, 1) > 0.5 \
+				and kami < 20.0 and road < 12.0 and st["far"] < 400.0 \
+				and st["mount_far"] < maxf(car.body_size.z, 4.0) * 2.0
+		_result(ok, "%d ticks x %d cams · broadcast in frame >= %.1f%% (worst %s) · wild bank >= %.1f%% (worst %s), %.1f%% on average · kamikaze passes within %.1f m, roadkill %.1f m · furthest camera %.0f m · rigid mounts drift %.6f m, fisheye mounts within %.1f m of the car · below ground %d · cycle %d/%d wraps %s" % [
+			st["frames"], TakeFormat.CAMERA_NAMES.size(), worst * 100.0, worst_n,
+			wild_worst * 100.0, wild_worst_n, wild_sum / maxf(wild_n, 1) * 100.0, kami, road,
+			st["far"], st["rigid_err"], st["mount_far"], st["under"], visited.size(),
+			TakeFormat.CAMERA_NAMES.size(), wraps])
 		return true
 	return false
 
@@ -857,12 +903,21 @@ func _check_cameras() -> void:
 		if not (x.origin.is_finite() and x.basis.x.is_finite()):
 			st["nonfinite"] += 1
 			continue
-		if n in ["chase", "heli", "front", "side", "trackside", "orbit", "crane", "drone", "lowchase", "pan"]:
-			if cam.is_position_in_frustum(car.global_position):
-				st["seen"][n] = st["seen"].get(n, 0) + 1
-			if x.origin.y < _ground_y(x.origin) + 0.3:
+		if cam.is_position_in_frustum(car.global_position):
+			st["seen"][n] = st["seen"].get(n, 0) + 1
+		# rigid mounts live on the car and are under the roof line by design; the rest have to
+		# stay above the ground and within sight of the car
+		if n in MOUNTED_CAMS:
+			# on the car, but sliding: it may not wander off the vehicle
+			var off := (inv * x).origin.length()
+			st["mount_far"] = maxf(st["mount_far"], off)
+		elif not (n in RIGID_CAMS):
+			if x.origin.y < _ground_y(x.origin) + float(LOW_CAMS.get(n, 0.3)):
 				st["under"] += 1
-		if n in ["wheel", "bumper", "driver", "rearwheel"]:
+			var d := x.origin.distance_to(car.global_position)
+			st["far"] = maxf(st["far"], d)
+			st["near"][n] = minf(float(st["near"].get(n, 1e9)), d)
+		if n in RIGID_CAMS:
 			var local := inv * x
 			if not st["rigid0"].has(n):
 				st["rigid0"][n] = local
@@ -1251,15 +1306,18 @@ func _t_watch_mode() -> bool:
 		return false
 	if t == st["t0"] + 240:
 		st["advanced"] = player.pos - st["pos0"]
-		# cycle every camera watch mode offers and record what each one was
-		var list := rig.watch_list()
-		for i in list.size():
-			rig.cycle(1)
-			var label := rig.camera_label(rig.active_camera)
-			if label.begins_with("take: "):
-				st["take_labels"].append(label.substr(6))
-			else:
-				st["live_labels"].append(label)
+		# cycle every camera watch mode offers and record what each one was. C stays within a
+		# bank, so step through both of them.
+		for b in 3:                      # broadcast, wild, and the take's own cameras
+			rig.set_bank(b)
+			var list := rig.cycle_list()
+			for i in list.size():
+				rig.cycle(1)
+				var label := rig.camera_label(rig.active_camera)
+				if label.begins_with("take: "):
+					st["take_labels"].append(label.substr(6))
+				else:
+					st["live_labels"].append(label)
 		# a take camera must sit where the take says it was
 		rig.select_index(0)
 		var k: int = st["names"].find("heli")

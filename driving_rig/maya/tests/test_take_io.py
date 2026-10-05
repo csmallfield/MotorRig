@@ -130,5 +130,52 @@ class TakeIoContract(unittest.TestCase):
         self.assertNotIn("cams.p", self.take)
 
 
+class WildCameraBank(unittest.TestCase):
+    """A take written with the full 26-camera set (broadcast + wild bank).
+
+    The Maya side takes its camera list from the take's own metadata, so a new camera needs no
+    importer change -- this is what proves it, without needing Maya itself.
+    """
+
+    WILD = os.path.join(HERE, "fixture_take_wild.json.gz")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.take = take_io.load(cls.WILD)
+
+    def test_every_camera_is_present_and_named(self):
+        names = self.take.camera_names
+        self.assertEqual(len(names), 26)
+        self.assertEqual(names[:3], ["chase", "driver", "heli"])
+        # the wild bank is appended, so older takes keep their camera.active indices
+        self.assertEqual(names[14:], ["handheld", "overtake", "kamikaze", "vertigo", "roadkill",
+                                      "helilost", "whip", "crashzoom", "skim", "crossing",
+                                      "fisheye", "fisheye_rear"])
+        self.assertEqual(len(set(names)), len(names), "camera names must be unique")
+
+    def test_every_camera_has_a_full_track(self):
+        n = len(self.take.times())
+        for name in self.take.camera_names:
+            pos = self.take.camera(name, "cams.p")
+            self.assertEqual(len(pos), 3, name)
+            for axis in pos:
+                self.assertEqual(len(axis), n, name)
+            self.assertTrue(all(math.isfinite(v) for v in pos[0]), name)
+
+    def test_wild_cameras_actually_move(self):
+        """A camera that never moves would read as recorded-but-dead."""
+        for name in ["kamikaze", "handheld", "crossing", "overtake"]:
+            xs = self.take.camera(name, "cams.p")[0]
+            self.assertGreater(max(xs) - min(xs), 1.0, name)
+
+    def test_active_camera_track_indexes_the_name_list(self):
+        active = self.take["camera.active"]
+        for v in active[:: max(1, len(active) // 50)]:
+            self.assertTrue(-1 <= int(v) < 26, v)
+
+    def test_validate_accepts_the_wild_take(self):
+        self.assertEqual(take_io.validate(take_io.read_root(self.WILD)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

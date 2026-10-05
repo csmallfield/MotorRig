@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.17.0 — the wild camera bank, back from Full Throttle Flux
+
+- **Twelve new cameras**: handheld, overtake, kamikaze, vertigo, roadkill, helilost, whip,
+  crashzoom, skim, crossing, fisheye and fisheye_rear. Broadcast coverage holds the subject;
+  these deliberately do not. Recorded like every other camera.
+- **Three banks** - broadcast, wild, and (while watching a take) the take's own cameras. `C`
+  cycles within a bank, `B` / D-pad right switches bank: 26 live plus a take's 26 is far too
+  many for one cycle.
+- **Structural improvements to every camera**, also from FTF: an underdamped spring for moves
+  that should feel operated rather than computed; offset blending, so a mount slides between
+  positions instead of cutting; a different approach angle per take; a speed scale alongside
+  the size scale, so plants suit a 95 km/h bus and a 280 km/h sports car; the orbit ramps
+  between two rates; the locked-off pan holds much longer before replanting.
+- **Plants follow the car's path**, projected on an arc from its current speed and yaw rate,
+  rather than straight ahead - the stand-in for FTF's track spline.
+- Format: 26 cameras, stride 186 -> 282, takes about 50 % bigger. New cameras are appended, so
+  older takes still load and keep their camera.active indices. The Maya side takes its camera
+  list from the take's metadata and needed no change.
+- Tests: the camera test now covers all 26 with separate expectations per bank, checks the
+  near-miss cameras actually pass close and that none drifts off or dips under the ground; a
+  new Maya-side fixture and tests prove a 26-camera take reads correctly.
+
 ## 0.16.1 — the monster truck getting stuck
 
 - **Fix (car physics, all vehicles): a car could get stuck on its belly for good.** Each wheel
