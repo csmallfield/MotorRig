@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.28.1 — a landing page and a user guide
+
+- **The repository's front page** (`README.md` at the top level) now shows the MotorRig logo,
+  screenshots of the start menu, driving, the take browser and an Arnold render, and a complete
+  guide: what you need, getting started, every control, cameras, recording, the take browser,
+  your own profiles, exporting a standalone Windows build, installing the Maya tools, every Maya
+  tool and option, a start-to-finish shot, troubleshooting and where things are. This file stays
+  the technical reference.
+- Screenshots live in `docs/images/` (git-tracked, Godot-ignored).
+- Maya import dialog: "Import every recorded camera (all 26 angles)" - it said 9.
+
 ## 0.28.0 — a new start screen, and a controller for everything
 
 - **Start screen:** the MotorRig logo at the top centre (from the SVG, imported at 8x so it is

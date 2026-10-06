@@ -63,7 +63,7 @@ class ImportDialog(object):
         for key, label, default in (("set_fps", "Set scene frame rate", 1),
                                     ("set_range", "Set playback range to the take (with handles)", 1),
                                     ("camera", "Import the take's camera (switches like the take)", 1),
-                                    ("all_cameras", "Import every recorded camera (9 angles)", 1),
+                                    ("all_cameras", "Import every recorded camera (all 26 angles)", 1),
                                     ("steering_wheel", "Steering wheel", 1),
                                     ("contacts", "Contact locators (grounded / slip - FX triggers)", 1),
                                     ("solve", "Solve wheel spin from travel (else: recorded spin)", 1)):

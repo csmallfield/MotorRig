@@ -1,10 +1,10 @@
-# Driving Rig — v0.17.0
+# MotorRig (Driving Rig) — technical reference, v0.28.1
 
 Gamepad-driven proxy car in Godot 4.7 that records takes as JSON for a Maya importer.
 A DIY Craft Director replacement. Spec: `docs/godot-driving-rig-spec.md`.
 
 **Done:** all three phases — drive, record, browse/replay/export in Godot; import onto a
-proxy rig in Maya 2026 with spin re-solve.
+proxy rig in Maya (2025+) with spin re-solve, and the full car models with Arnold shaders.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ proxy rig in Maya 2026 with spin re-solve.
 | Left stick | A / D (← / →) | steer |
 | B | Space | handbrake |
 | X | X | reverse gear (only at a standstill) — the left trigger is only ever the brake |
-| Y | C | next camera (9 angles) — number keys 1-9 jump to one; D-pad left / Z goes back |
+| Y | C | next camera in the bank — number keys 1-9 jump to one; D-pad left / Z goes back |
 | Start | R | record / stop (cancels during countdown) |
 | LB | Tab | take browser |
 | RB | V | watch the replay full screen (no panel) |
@@ -191,7 +191,7 @@ Tab / LB opens it. The car parks, recording is blocked, and the chase cam follow
 
 Thumbnails are a top-down path plot (10 m grid, colour = speed, green IN, red OUT).
 
-## Maya (2026)
+## Maya (2025+)
 
 **Install:** drag `maya/install_driving_rig.py` into a Maya viewport. You get a **Driving Rig**
 menu and a **DrivingRig** shelf (Import, Solve) straight away, and a small marked block in your
@@ -248,7 +248,7 @@ the take recorded (its *current* model, so an old take gets the new car).
   near-transparent glass becomes thin-walled **transmission**, lightly tinted; textured alpha
   (decals) becomes opacity. `standardSurface` if Arnold isn't loaded.
 - **Unload Car Model** detaches it and removes the reference; *Delete Rig…* does the same.
-- Needs numpy, which Maya 2024+ ships with (the rest of the Maya side doesn't).
+- Needs numpy, which Maya ships with (2025 and 2027 tested); the rest of the Maya side doesn't.
 
 **Your own car model** (*Driving Rig ▸ Car Model*):
 
