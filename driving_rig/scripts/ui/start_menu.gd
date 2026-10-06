@@ -111,6 +111,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # === UI ===
+## Laid out for 1920 x 1080; the project scales the whole UI with the window (stretch mode
+## canvas_items), so it looks the same at 4K. Everything is reachable on a controller:
+##   D-pad / stick   move: up and down a list, left and right between lists and buttons
+##   A               pick: in a list, move on to the next one (car -> world -> driving -> DRIVE);
+##                   on a button, press it
+##   Start           drive, from anywhere
+
+const LOGO := "res://graphic_elements/SVG/motorrig_logo.svg"
+
 
 func _build() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -121,25 +130,30 @@ func _build() -> void:
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 48)
+	for side in ["left", "right"]:
+		margin.add_theme_constant_override("margin_" + side, 64)
+	margin.add_theme_constant_override("margin_top", 36)
+	margin.add_theme_constant_override("margin_bottom", 32)
 	add_child(margin)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override(&"separation", 14)
+	v.add_theme_constant_override(&"separation", 16)
 	margin.add_child(v)
 
-	var title := Label.new()
-	title.text = "MOTOR RIG"
-	title.add_theme_font_size_override(&"font_size", 44)
-	title.add_theme_color_override(&"font_color", ACCENT)
-	v.add_child(title)
+	var logo := TextureRect.new()
+	logo.texture = load(LOGO)
+	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	logo.custom_minimum_size = Vector2(0, 150)
+	v.add_child(logo)
 	var sub := Label.new()
 	sub.text = "v%s  -  pick a car, a world and how it drives" % ProjectSettings.get_setting("application/config/version", "dev")
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override(&"font_size", 18)
 	sub.modulate = Color(0.7, 0.72, 0.78)
 	v.add_child(sub)
 
 	var cols := HBoxContainer.new()
-	cols.add_theme_constant_override(&"separation", 28)
+	cols.add_theme_constant_override(&"separation", 32)
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(cols)
 	var car_col := _column(cols, "CAR")
@@ -151,62 +165,107 @@ func _build() -> void:
 	_world_info = world_col[1]
 	_mode_list = mode_col[0]
 	_mode_info = mode_col[1]
-	_car_list.focus_neighbor_right = _world_list.get_path()
-	_world_list.focus_neighbor_left = _car_list.get_path()
-	_world_list.focus_neighbor_right = _mode_list.get_path()
-	_mode_list.focus_neighbor_left = _world_list.get_path()
 
 	_warn = Label.new()
 	_warn.add_theme_color_override(&"font_color", Color(1.0, 0.7, 0.3))
+	_warn.add_theme_font_size_override(&"font_size", 16)
 	_warn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_warn.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_warn)
 
 	var btns := HBoxContainer.new()
-	btns.add_theme_constant_override(&"separation", 12)
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	btns.add_theme_constant_override(&"separation", 16)
 	v.add_child(btns)
 	_drive = Button.new()
 	_drive.text = "DRIVE  >"
-	_drive.custom_minimum_size = Vector2(220, 52)
-	_drive.add_theme_font_size_override(&"font_size", 22)
+	_drive.custom_minimum_size = Vector2(260, 60)
+	_drive.add_theme_font_size_override(&"font_size", 24)
 	_drive.pressed.connect(drive)
+	_drive.add_theme_stylebox_override(&"focus", _focus_box())
 	btns.add_child(_drive)
+	var row: Array[Control] = [_drive]
 	for spec: Array in [["Rescan", rescan], ["Open my profiles folder", func() -> void: _cfg.open_user_profiles()],
 			["Quit", func() -> void: get_tree().quit()]]:
 		var b := Button.new()
 		b.text = spec[0]
-		b.custom_minimum_size = Vector2(0, 52)
+		b.custom_minimum_size = Vector2(0, 60)
+		b.add_theme_font_size_override(&"font_size", 18)
 		b.pressed.connect(spec[1])
+		b.add_theme_stylebox_override(&"focus", _focus_box())
 		btns.add_child(b)
+		row.append(b)
 
 	var hint := Label.new()
-	hint.text = ("Profiles are .tres files: project ones in res://profiles/cars|worlds|modes, yours in %s  -  "
-			+ "duplicate one, edit it in the Inspector, then Rescan.   Gamepad: D-pad, A to pick, Start to drive.") % \
-			ProjectSettings.globalize_path("user://profiles")
+	hint.text = ("Controller: D-pad / stick to move, A to pick (car > world > driving > DRIVE), Start to drive.   "
+			+ "Profiles are .tres files: project ones in res://profiles/cars|worlds|modes, yours in %s - "
+			+ "duplicate one, edit it in the Inspector, then Rescan.") % ProjectSettings.globalize_path("user://profiles")
 	hint.modulate = Color(0.55, 0.57, 0.62)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.add_theme_font_size_override(&"font_size", 13)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override(&"font_size", 14)
 	v.add_child(hint)
+
+	# Focus: explicit, so a controller always goes where it looks like it should.
+	var lists: Array[ItemList] = [_car_list, _world_list, _mode_list]
+	for i in lists.size():
+		var l := lists[i]
+		l.focus_neighbor_left = lists[maxi(i - 1, 0)].get_path()
+		l.focus_neighbor_right = (lists[i + 1] if i + 1 < lists.size() else _drive).get_path()
+		l.focus_neighbor_bottom = _drive.get_path()          # down off the end of a list
+		l.focus_neighbor_top = l.get_path()
+		l.focus_next = l.focus_neighbor_right
+		l.focus_previous = l.focus_neighbor_left
+	for i in row.size():
+		var b := row[i]
+		b.focus_neighbor_top = _car_list.get_path()          # up from the buttons: start at the car
+		b.focus_neighbor_bottom = b.get_path()
+		b.focus_neighbor_left = row[maxi(i - 1, 0)].get_path()
+		b.focus_neighbor_right = row[mini(i + 1, row.size() - 1)].get_path()
+
+
+## Where the controller is: an accent outline on the focused list or button.
+static func _focus_box() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.draw_center = false
+	sb.border_color = ACCENT
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(4)
+	sb.set_expand_margin_all(3)
+	return sb
+
+
+## A (or Enter, or a double-click) in a list: that's the pick - move on to the next column.
+func _advance_from(list: ItemList) -> void:
+	var order: Array[Control] = [_car_list, _world_list, _mode_list, _drive]
+	order[order.find(list) + 1].grab_focus()
 
 
 func _column(parent: Control, heading: String) -> Array:
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override(&"separation", 8)
+	col.add_theme_constant_override(&"separation", 10)
 	parent.add_child(col)
 	var h := Label.new()
 	h.text = heading
-	h.add_theme_font_size_override(&"font_size", 20)
+	h.add_theme_font_size_override(&"font_size", 24)
+	h.add_theme_color_override(&"font_color", ACCENT)
 	col.add_child(h)
 	var list := ItemList.new()
-	list.custom_minimum_size = Vector2(0, 200)
-	list.add_theme_font_size_override(&"font_size", 18)
+	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list.size_flags_stretch_ratio = 3.0                     # the list gets most of the height
+	list.add_theme_font_size_override(&"font_size", 22)
+	list.add_theme_constant_override(&"v_separation", 6)
+	list.add_theme_stylebox_override(&"focus", _focus_box())
 	list.item_selected.connect(_on_changed)
-	list.item_activated.connect(func(_i: int) -> void: drive())
+	list.item_activated.connect(func(_i: int) -> void: _advance_from(list))
 	col.add_child(list)
 	var info := Label.new()
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	info.add_theme_font_size_override(&"font_size", 14)
+	info.clip_text = true
+	info.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	info.add_theme_font_size_override(&"font_size", 15)
 	info.modulate = Color(0.82, 0.84, 0.88)
 	col.add_child(info)
 	return [list, info]

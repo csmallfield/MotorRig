@@ -24,18 +24,19 @@ RT / LT   throttle / brake   W / S  (↑ / ↓)
 Left stick   steer           A / D  (← / →)
 B   handbrake                Space
 X   reverse gear (at a stop) X
-D-pad up  next start point  F2
-D-pad right  camera bank  B
-Y   next camera (9 angles)   C     1-9 jump to a camera
+Y   next camera              C     1-9 jump to a camera
+D-pad left / right  camera / bank   Z / B
+D-pad up   next start point  F2
+D-pad down   this help       F1
 Start   record / stop        R
+View/Back   recover upright  Backspace
+R3   reset to spawn          Home
 LB   take browser            Tab
 RB   watch replay full screen V
 L3   ghost play / pause      P
-View/Back   recover upright  Backspace
-                             Esc   back to the start menu
-                             Home   reset to spawn
+In the browser: D-pad + A, B closes;
+  Menu (top row) back to the start menu   Esc
                              O   open takes folder
-                             F1   toggle this help
 The left trigger is only ever the brake."""
 
 

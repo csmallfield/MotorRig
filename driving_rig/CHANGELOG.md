@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.28.0 — a new start screen, and a controller for everything
+
+- **Start screen:** the MotorRig logo at the top centre (from the SVG, imported at 8x so it is
+  sharp at 4K), lists that take most of the screen - all ten cars show without scrolling - and
+  centred buttons. An orange outline shows where the controller is.
+- **Scales with the window:** stretch mode canvas_items / aspect expand. The UI is laid out for
+  1080p and drawn sharp at whatever size the window is - 4K is the same screen at twice the
+  size; wider screens get the extra width. The take browser is now 40 % of the screen wide
+  instead of a fixed 700 px, which also stops it running off the right edge.
+- **Controller everywhere:**
+  - A presses and B backs out on every menu - Godot's menu actions had no controller button,
+    so A did nothing. D-pad / stick already moved.
+  - Start menu: explicit paths between the three lists and the buttons; A in a list moves on
+    (car > world > driving > DRIVE), down off a list goes to DRIVE, Start drives from anywhere.
+  - Take browser: rows linked top to bottom (header, takes, buttons, slider, options), opens on
+    the newest take, B closes it. Menu in its top row is the way back to the start menu. The
+    label box is skipped by the D-pad (typing needs a keyboard anyway). Delete's confirm opens on
+    Cancel, so a stray A can't delete a take.
+  - In game: R3 resets to spawn and D-pad down toggles the help - those had only Home / F1.
+- Tests: new `menu_gamepad`.
+
 ## 0.27.0 — smaller models, faster start, a loading screen (Maya side 0.11.0)
 
 - **Textures out of the .glb files.** Every texture was stored twice: embedded in the model and

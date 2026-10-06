@@ -9,9 +9,12 @@ proxy rig in Maya 2026 with spin re-solve.
 ## Quick start
 
 1. Open `project.godot` in Godot **4.7** (Forward+). First open imports for a few seconds.
-2. F5 opens the **start menu**: pick a car, a world and a **driving mode**, then DRIVE
-   (gamepad: D-pad, A, Start).
-   Xbox pad or keyboard. F1 toggles the help overlay; **Esc** (or Tab > Menu) returns to the menu.
+2. F5 opens the **start menu**: pick a car, a world and a **driving mode**, then DRIVE.
+   **Everything works on a controller**: D-pad / stick moves, A picks (car > world > driving >
+   DRIVE), Start drives from anywhere. Only typing a take label needs the keyboard, and the
+   export / folder buttons are meant for the mouse. Xbox pad or keyboard in game. D-pad down / F1
+   toggles the help overlay; **Esc**, or LB > Menu on a controller, returns to the menu.
+   The whole UI scales with the window, so it looks the same at 1080p, 4K or ultrawide.
 3. Start (or R) → 3-2-1 → drive → Start again. Take is written after the 8-frame post-roll.
 4. Takes are written as `take_####.json.gz` (format v2 — see `docs/SCHEMA.md`).
 5. O opens the takes folder (`%APPDATA%\Godot\app_userdata\Driving Rig\takes\` on Windows).
@@ -28,7 +31,9 @@ proxy rig in Maya 2026 with spin re-solve.
 | RB | V | watch the replay full screen (no panel) |
 | L3 | P | ghost play / pause |
 | View/Back | Backspace | recover upright in place |
-| — | Home | reset to spawn |
+| R3 | Home | reset to spawn |
+| D-pad down | F1 | help overlay |
+| D-pad / A / B | arrows / Enter / Esc | in the take browser: move, press, close (Menu in its top row goes back to the start menu) |
 
 Recover/reset are locked while a take is running so every take is physically continuous.
 
@@ -536,6 +541,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | scene_export | 7 OBJs, ground 160,801 verts / 320k tris; corner vertex on the height function to 0.0000 cm |
 | browser | list, replay, camera follow, input lock and restore |
 | menu | lists every profile on disk, selects, warns on tick mismatch, flags invalid files |
+| menu_gamepad | A / B on the menu actions, R3 and D-pad-down bound, every menu list and button linked in all four directions, A advances car > world > driving > DRIVE, logo shown, UI scales with the window |
 | cameras | 26 cameras x 2,400 ticks: broadcast in frame ≥ 97 %, wild bank ≥ 15 % each (they are meant to break framing), kamikaze and roadkill pass close, no camera under ground or adrift, rigid mounts fixed, both banks cycle |
 | layout | the sample layout matches the camera list (a mismatch silently corrupts every take) |
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |

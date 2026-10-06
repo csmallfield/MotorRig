@@ -21,6 +21,7 @@ var mode_path: String = ""
 
 
 func _ready() -> void:
+	add_gamepad_ui_buttons()
 	for d in [CAR_DIRS[1], WORLD_DIRS[1], MODE_DIRS[1]]:
 		DirAccess.make_dir_recursive_absolute(d)
 	_restore_last()
@@ -183,6 +184,21 @@ func _hide_overlay() -> void:
 
 func open_user_profiles() -> void:
 	OS.shell_open(ProjectSettings.globalize_path("user://profiles"))
+
+
+## Godot's built-in menu actions already take the D-pad and left stick for moving between
+## controls, but ui_accept / ui_cancel have no controller button - so A couldn't press anything.
+## A presses / picks, B backs out (closes a popup or dialog, or the take browser).
+static func add_gamepad_ui_buttons() -> void:
+	for spec in [[&"ui_accept", JOY_BUTTON_A], [&"ui_cancel", JOY_BUTTON_B]]:
+		var has := false
+		for e in InputMap.action_get_events(spec[0]):
+			has = has or (e is InputEventJoypadButton and e.button_index == spec[1])
+		if not has:
+			var ev := InputEventJoypadButton.new()
+			ev.button_index = spec[1]
+			ev.device = -1
+			InputMap.action_add_event(spec[0], ev)
 
 
 # === internals ===

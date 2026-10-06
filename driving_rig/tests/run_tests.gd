@@ -23,7 +23,7 @@ const REF_WORLD: String = "res://profiles/worlds/default_hills.tres"
 const REF_MODE: String = "res://profiles/modes/standard.tres"
 const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", "corner_140",
 	"flick", "catch", "bumps", "ramp", "hills", "record_replay", "format_compat", "validator",
-	"export", "scene_export", "browser", "menu", "car_profiles", "world_profiles", "drive_modes",
+	"export", "scene_export", "browser", "menu", "menu_gamepad", "car_profiles", "world_profiles", "drive_modes",
 	"cameras", "camera_record", "steering_wheel", "custom_chassis", "rig_model", "mode_loose", "mode_stunt",
 	"mode_drivable", "reverse_gear", "watch_mode", "layout", "audio_files", "audio_engine", "audio_impact",
 	"interchange", "interchange_drive", "interchange_finish", "vehicle_models",
@@ -811,6 +811,41 @@ func _t_menu() -> bool:
 	_result(listed and picked and clean and warned and flagged,
 		"%d cars, %d worlds, %d modes listed · select ok %s · tick-mismatch warning %s · invalid file flagged %s" % [
 		cars, worlds, modes, picked, warned, flagged])
+	return true
+
+
+## Everything on the start menu is reachable with a controller: A and B are on the menu
+## actions, every list and button has a defined neighbour in all four directions, and A in a
+## list moves on car -> world -> driving -> DRIVE. The in-game actions that had only a key
+## (reset, help) have a controller button too.
+func _t_menu_gamepad() -> bool:
+	var has := func(action: StringName, btn: int) -> bool:
+		for e in InputMap.action_get_events(action):
+			if e is InputEventJoypadButton and e.button_index == btn:
+				return true
+		return false
+	var buttons_ok: bool = has.call(&"ui_accept", JOY_BUTTON_A) and has.call(&"ui_cancel", JOY_BUTTON_B) 			and has.call(&"reset_spawn", JOY_BUTTON_RIGHT_STICK) and has.call(&"toggle_help", JOY_BUTTON_DPAD_DOWN)
+	var menu: Control = load("res://scenes/menu.tscn").instantiate()
+	main.add_child(menu)
+	var lists: Array = [menu._car_list, menu._world_list, menu._mode_list]
+	var linked := true
+	for c: Control in lists + [menu._drive]:
+		for side in [c.focus_neighbor_left, c.focus_neighbor_right, c.focus_neighbor_top, c.focus_neighbor_bottom]:
+			linked = linked and not side.is_empty() and c.get_node_or_null(side) != null
+	var down_to_drive := lists.all(func(l: Control) -> bool: return l.get_node(l.focus_neighbor_bottom) == menu._drive)
+	var order := []
+	menu._car_list.grab_focus()
+	for k in 3:
+		menu._advance_from(root.gui_get_focus_owner())
+		order.append(root.gui_get_focus_owner())
+	var advances: bool = order == [menu._world_list, menu._mode_list, menu._drive]
+	var logo := (menu.find_children("*", "TextureRect", true, false) as Array).any(
+			func(t: TextureRect) -> bool: return t.texture != null)
+	var scaled: bool = ProjectSettings.get_setting("display/window/stretch/mode") == "canvas_items"
+	menu.queue_free()
+	_result(buttons_ok and linked and down_to_drive and advances and logo and scaled,
+		"A/B on menus, R3 reset, D-pad-down help %s · every list and button linked 4 ways %s · down off a list to DRIVE %s · A advances car > world > driving > DRIVE %s · logo %s · UI scales with the window %s" % [
+		buttons_ok, linked, down_to_drive, advances, logo, scaled])
 	return true
 
 

@@ -49,6 +49,9 @@ var _status: Label
 var _confirm: ConfirmationDialog
 var _file_dialog: FileDialog
 var _scene_dialog: FileDialog
+var _head_row: Array[Control] = []
+var _btn_row: Array[Control] = []
+var _opt_row: Array[Control] = []
 var _scene_thread: Thread   # dedicated thread, same reason as take loading
 var _watch_when_loaded: bool = false
 
@@ -93,6 +96,9 @@ func _input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"replay_play_pause") and _player.active:
 		_player.toggle_play()
+	elif is_open and event.is_action_pressed(&"ui_cancel"):    # B / Esc: back to driving
+		get_viewport().set_input_as_handled()
+		close()
 
 
 ## Hide the panel and watch the replay full screen. Cameras keep working (Y/C, 1-9), so you
@@ -142,6 +148,10 @@ func open() -> void:
 	_car.input_handbrake = false
 	_rec.blocked = true
 	refresh()
+	if _tree.get_selected() == null and item_count() > 0:      # so A replays straight away
+		var first := _tree.get_root().get_child(0)
+		first.select(1)
+		_show_details(first.get_metadata(0))
 	if _player.active:
 		_attach_view()
 	_tree.grab_focus()
@@ -350,6 +360,7 @@ func _on_delete() -> void:
 		return
 	_confirm.dialog_text = "Move %s (%s) to the recycle bin?" % [_display_name(_selected), _selected]
 	_confirm.popup_centered()
+	_confirm.get_cancel_button().grab_focus()     # a stray A mustn't delete a take
 
 
 func _on_delete_confirmed() -> void:
@@ -494,11 +505,11 @@ func _build_ui() -> void:
 	sb.set_corner_radius_all(8)
 	sb.set_content_margin_all(12)
 	_panel.add_theme_stylebox_override(&"panel", sb)
-	_panel.anchor_left = 1.0
+	_panel.anchor_left = 0.6             # 40 % of the screen, whatever its size
 	_panel.anchor_right = 1.0
 	_panel.anchor_top = 0.0
 	_panel.anchor_bottom = 1.0
-	_panel.offset_left = -700.0
+	_panel.offset_left = 0.0
 	_panel.offset_right = -12.0
 	_panel.offset_top = 12.0
 	_panel.offset_bottom = -12.0
@@ -522,24 +533,28 @@ func _build_ui() -> void:
 	_fav_only.text = "Favourites only"
 	_fav_only.toggled.connect(func(_on: bool) -> void: refresh())
 	head.add_child(_fav_only)
+	_head_row.append(_fav_only)
 	var scene_btn := Button.new()
 	scene_btn.text = "Export Scene..."
 	scene_btn.tooltip_text = "Write the terrain and props as OBJ files (cm, Y-up, world space) for Maya"
 	scene_btn.pressed.connect(_on_export_scene)
 	head.add_child(scene_btn)
+	_head_row.append(scene_btn)
 	var menu_btn := Button.new()
 	menu_btn.text = "Menu"
-	menu_btn.tooltip_text = "Back to the start menu to pick another car or world (Esc)"
+	menu_btn.tooltip_text = "Back to the start menu to pick another car or world (Esc; on a controller: LB, then up to here)"
 	menu_btn.pressed.connect(func() -> void:
 		var cfg := get_node_or_null(^"/root/SimConfig")
 		if cfg:
 			cfg.go_menu())
 	head.add_child(menu_btn)
+	_head_row.append(menu_btn)
 	var folder := Button.new()
 	folder.text = "Folder"
 	folder.tooltip_text = "Open the takes folder (O)"
 	folder.pressed.connect(func() -> void: OS.shell_open(ProjectSettings.globalize_path(_rec.takes_dir)))
 	head.add_child(folder)
+	_head_row.append(folder)
 
 	_tree = Tree.new()
 	_tree.columns = COLS.size()
@@ -582,6 +597,7 @@ func _build_ui() -> void:
 	_label_edit.placeholder_text = "e.g. hero_pass_A — Enter to set"
 	_label_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_label_edit.text_submitted.connect(_on_label_submitted)
+	_label_edit.focus_mode = Control.FOCUS_CLICK     # typing only: the D-pad passes it by
 	lrow.add_child(_label_edit)
 
 	var btns := HBoxContainer.new()
@@ -592,6 +608,7 @@ func _build_ui() -> void:
 	_button(btns, "Watch  (RB)", watch)
 	_btn_export = _button(btns, "Export…", _on_export)
 	_btn_delete = _button(btns, "Delete", _on_delete)
+	_btn_row.assign(btns.get_children())
 
 	_slider = HSlider.new()
 	_slider.step = 1.0
@@ -629,11 +646,15 @@ func _build_ui() -> void:
 	_speed.select(2)
 	_speed.item_selected.connect(func(i: int) -> void: _player.speed = [0.25, 0.5, 1.0, 2.0][i])
 	opts.add_child(_speed)
+	_opt_row.assign([_loop, _hide_live, _speed])
 	var hint := Label.new()
-	hint.text = "RB/V: watch full screen   Y/C: cameras   L3/P: play/pause"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.text = "RB/V: watch full screen   Y/C: cameras   L3/P: play/pause   B: close"
 	hint.modulate = Color(0.65, 0.65, 0.7)
 	hint.add_theme_font_size_override(&"font_size", 13)
-	opts.add_child(hint)
+	v.add_child(hint)                    # its own line: wraps instead of widening the panel
+
+	_link_focus()
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -662,6 +683,38 @@ func _build_ui() -> void:
 	_scene_dialog.use_native_dialog = true
 	_scene_dialog.dir_selected.connect(export_scene_to)
 	add_child(_scene_dialog)
+
+
+## Controller paths through the panel, top to bottom:
+##   header (Favourites only, Export Scene, Menu, Folder)
+##   take list  - up/down through the takes, A replays
+##   buttons    (Replay, Stop, Favourite, Watch, Export, Delete)
+##   time slider - left/right scrubs
+##   options    (Loop, Hide live car, Speed)
+## Left/right moves along a row, up/down between rows. B closes the browser.
+func _link_focus() -> void:
+	var rows: Array = [_head_row, [_tree], _btn_row, [_slider], _opt_row]
+	for r in rows.size():
+		var row: Array = rows[r]
+		var up: Control = (rows[r - 1] as Array)[0] if r > 0 else null
+		var down: Control = (rows[r + 1] as Array)[0] if r + 1 < rows.size() else null
+		for i in row.size():
+			var c: Control = row[i]
+			c.focus_neighbor_top = (up if up else c).get_path()
+			c.focus_neighbor_bottom = (down if down else c).get_path()
+			c.focus_neighbor_left = (row[i - 1] as Control).get_path() if i > 0 else c.get_path()
+			c.focus_neighbor_right = (row[i + 1] as Control).get_path() if i + 1 < row.size() else c.get_path()
+			c.add_theme_stylebox_override(&"focus", _focus_box())
+
+
+static func _focus_box() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.draw_center = false
+	sb.border_color = Color(0.94, 0.54, 0.14)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(3)
+	sb.set_expand_margin_all(2)
+	return sb
 
 
 func _button(parent: Control, text: String, cb: Callable) -> Button:
