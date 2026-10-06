@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.27.0 — smaller models, faster start, a loading screen (Maya side 0.11.0)
+
+- **Textures out of the .glb files.** Every texture was stored twice: embedded in the model and
+  again as the PNG Godot extracts beside it - and the SUV (134.5 MB) and limo (100.0 MB) were
+  over GitHub's 100 MB limit. `tools/strip_glb_textures.py` now points each model at those PNGs
+  and drops the embedded copies: 750 MB of models down to 345 MB, the largest 61.7 MB. Checked
+  on all ten against the originals: every accessor byte-identical, nodes / meshes / materials
+  unchanged, every PNG equal to the image it replaces. Looks the same in Godot and in Arnold.
+- **Startup 6 s faster.** The start menu reads every car profile, and each profile held its
+  model, so all ten full models loaded - twice - before the menu appeared. Profiles now store
+  `chassis_path` (a file picker in the Inspector) and the model loads when the car spawns.
+  Reading all ten profiles: 6040 ms -> 12 ms. `chassis_scene` still works from code. Takes record
+  the same `chassis_scene` key as before.
+- **Loading screen.** Starting a drive or going back to the menu shows a "Loading <car>..." screen
+  with a progress bar while the scene and the car's model load on a thread, and keeps it up
+  until the first frame of the new scene - the window no longer looks frozen. The limo: ~1.6 s.
+- **Maya:** car models use the PNGs beside the .glb directly (only embedded images go to the
+  cache's textures/), so Arnold's .tx land there too. Reads both `chassis_path` and older
+  profiles' `chassis_scene`. Every cache rebuilt (builder 3); `.tx` under `models/` is
+  git-ignored.
+
+## 0.26.0 — every car in Maya (Maya side 0.10.0)
+
+- **Load Car Model for Take works for all ten vehicles.** Each was checked end to end in Maya
+  2027 / MtoA 5.6.2 on a recorded take of that car: built from its .glb, referenced, attached;
+  zero drift between every part and its rig node over the take, tyre centres exactly on the
+  rig's wheels, steering turning, and triangle counts equal to each asset's README (unique mesh
+  data: the SUV's shared wheels count once). An Arnold render of each.
+- **Relocated steering wheels (the limo).** A model's `steering_visual_pivot` builds into a
+  `steering_visual` group at its own pivot. Attaching rides it on the chassis and wires the
+  pivot's rotateZ from the rig's steering_wheel - the same orientation, so it turns in place, as
+  in the game. Parent-constraining it to the rig's wheel would have swung it round the rig's
+  column, 1.9 m away. Detach disconnects it and puts it back at rest.
+- The build notes any primitive it skips (not triangles) in build.json; none of the ten have any.
+- Tests: `test_carmodel.py` adds a fixture car with a wheel moved 1 m off the rig's column
+  (turns with the rig, stays on the chassis, detach undoes it) - 10 tests, 102 in all.
+
+## 0.25.0 — the game's cars in Maya, with Arnold shaders (Maya side 0.9.0)
+
+- **Car Model > Load Car Model for Take**: select a take rig and the full textured model of the
+  car it was driven with is referenced in and attached - no bind-car fitting, because every
+  model is authored on the bind car's pose. Unload Car Model / Delete Rig remove it again.
+- **Built from the .glb, cached:** `maya/driving_rig/carmodel.py` reads the game's model (node
+  tree, triangle meshes, embedded textures) and builds `maya/cars/<profile>/car.mb` in a
+  separate mayapy, so the open scene is never touched. Rebuilt when the .glb changes; git-ignored.
+  The bus: 329,836 triangles, 26 materials, 17 textures, ~20 s the first time.
+- **Arnold shaders:** aiStandardSurface per material - base colour, packed roughness/metalness
+  (Raw), aiNormalMap, clearcoat, emission (x emissive strength), IOR. The game's near-zero-alpha
+  glass becomes thin-walled transmission with only alpha's share of the tint (the full tint made
+  the windows dark); a textured alpha becomes opacity. standardSurface without Arnold.
+- **Attach (also for your own models):** optional groups `wheel_XX_susp` (steers and travels,
+  doesn't spin - calipers) and `wheel_XX_steer` (steers only). A steering wheel on a take older
+  than rig 0.7, which has no steering node, now rides on the chassis instead of being left behind.
+- Tests: `test_carmodel.py` (9) - a rig-shaped .glb written from the fixture take: groups and
+  units, instancing, every material path, stale cache, the build in its own mayapy with the scene
+  left alone, loaded parts following the take with tyres on the rig's wheels, unload and delete,
+  and the real bus. Verified end to end on a recorded bus take in Maya 2027 / MtoA 5.6.2: zero
+  drift between every part and its rig node, and an Arnold render.
+- Known: `test_hierarchy_and_proportions` and `test_scene_in_metres` (proxy wheel bounding box,
+  42.4 vs 34 cm) fail in Maya 2025 and 2027 alike, before and after this change.
+
+## 0.24.0 — the rest of the fleet: limo, monster truck, SUV and sports car
+
+- **Every vehicle now has a full model.** New: AUREL Regent 600 limo, BRONT M5 monster truck,
+  Kestrel S6 SUV and VANTA V87 GT sports car, each in `models/vehicles/<profile>/`, each
+  driving its own wheels, brake parts and steering wheel, shown from the driver cam. Dimensions
+  unchanged, so handling and takes are as before.
+- **Relocated steering wheels.** A model may put its visible wheel under `steering_visual_pivot`
+  (same orientation and rest rotation as `steering_wheel`) when its cabin isn't where the rig's
+  column is; the car turns that node instead. The limo does this, and its profile's `driver_eye`
+  moved from z -3.2 to -1.27 m so the driver cam sits in the model's seat. Camera only.
+- Known, accepted: the sports car's roof stands 29 cm above its 0.85 m box (like the
+  hatchback); the monster truck's frame and axles hang 41 cm below its body box.
+- **Tests**
+  - Two tests assumed the reference car had no model of its own. `steering_wheel` now checks
+    whichever wheel the car turns (12 o'clock swings to the driver's left), so it covers the
+    models' wheels too. `custom_chassis` sets its own driver-cam hiding.
+  - `rig_model` covers all ten vehicles. It checks the steering node the car turns has meshes
+    on it. Its chain-part check matches chain nodes by exact name, so parts called
+    `wheel_FL__Brake__...` count as parts. Coverage needs 95 % of the collider
+    (`RIG_COVERAGE`); per-model exceptions are in `RIG_OVERSIZE`.
+  - `vehicle_models` checks the proxy `.glb` files directly (all 10) rather than through the
+    profiles, which no longer use them; it still fails any profile without a model.
+
+## 0.23.0 — a real sedan
+
+- **New sedan model, VAEL S26 AWD** (`models/vehicles/sedan_awd/`) on the reference car: 1.65M
+  triangles in 755 meshes, textured PBR with clearcoat, full cabin and see-through glass, its own
+  wheels (each a group of 71 meshes), four brake calipers and steering wheel. Shown from the
+  driver cam. Dimensions unchanged, so every handling reference number stands.
+- Like the hatchback, the roof stands above the collision box (26 cm over the 1.0 m box; nose
+  and tail 9 cm past it). Accepted; it fits the test's usual 30 % allowance.
+- Tests: `rig_model` covers the sedan. Nearly every test drives the reference car, so the whole
+  suite now runs with this model.
+
 ## 0.22.0 — a real hatchback
 
 - **New hatchback model, VELA 1600 S** (`models/vehicles/hatch_fwd/`): a late-80s three-door,

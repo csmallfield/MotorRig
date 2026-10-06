@@ -308,14 +308,17 @@ def _ground_mismatch(source, other_attr):
 
 def delete_rig(root=None):
     """Delete a take rig or an imported scene (whichever the selection belongs to). A car model
-    attached to the rig is detached first - never deleted with it - and the bind car goes too."""
+    you attached is detached first - never deleted with it - and the bind car goes too. A car
+    model loaded from the cache (Load Car Model for Take) is unloaded: it's only a reference."""
     root = find_rig_root(root) or _find_scene_root(root)
     if not root:
         return False
     ns = namespace_of(root)
     if cmds.attributeQuery(RIG_ATTR, node=root, exists=True):
-        from . import bind
-        if bind.attached_parts(root):
+        from . import bind, carmodel
+        if carmodel.find_car(root)[0]:
+            carmodel.unload_for_take(root)
+        elif bind.attached_parts(root):
             bind.detach_model(root)
         bns = bind.bind_namespace(ns)
         if cmds.namespace(exists=":" + bns):

@@ -21,7 +21,16 @@ enum Drive { RWD, FWD, AWD }
 @export_group("Chassis model")
 ## Your own body model (a .tscn, or an imported .glb/.gltf/.blend scene). Empty = the proxy box.
 ## Visual only: the collider is still the box from body_size, so size that to match.
-@export var chassis_scene: PackedScene
+## A path, not the scene itself: the start menu reads every profile, and holding the scene
+## made that load all ten full models (6 s, twice at startup). It loads when the car spawns.
+@export_file("*.glb", "*.gltf", "*.tscn", "*.scn", "*.blend") var chassis_path: String = ""
+## The model, loaded on first use. Setting it (from code, or an older .tres that stored the
+## scene itself) just records its path.
+var chassis_scene: PackedScene:
+	get:
+		return load(chassis_path) as PackedScene if chassis_path != "" and ResourceLoader.exists(chassis_path) else null
+	set(v):
+		chassis_path = v.resource_path if v else ""
 ## Offset / rotation / scale to fit the model to the car (car space: -Z forward, Y up, metres).
 @export var chassis_transform: Transform3D = Transform3D.IDENTITY
 ## Hide the model from the driver cam (right for the solid proxy box; turn off for a model
@@ -115,6 +124,8 @@ func to_dict() -> Dictionary:
 	for p in get_property_list():
 		if not (int(p["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE):
 			continue
+		if p["name"] in ["chassis_scene", "chassis_path"]:
+			continue   # recorded below as before - and reading chassis_scene would load the model
 		var v: Variant = get(p["name"])
 		if v is Vector3:
 			d[p["name"]] = [v.x, v.y, v.z]
@@ -122,7 +133,7 @@ func to_dict() -> Dictionary:
 			d[p["name"]] = [v.r, v.g, v.b]
 		elif v is float or v is int or v is bool or v is String:
 			d[p["name"]] = v
-	d["chassis_scene"] = chassis_scene.resource_path if chassis_scene else ""
+	d["chassis_scene"] = chassis_path   # the take's key for it (the ghost and Maya read it)
 	var t := chassis_transform
 	d["chassis_transform"] = [t.basis.x.x, t.basis.x.y, t.basis.x.z, t.basis.y.x, t.basis.y.y, t.basis.y.z,
 		t.basis.z.x, t.basis.z.y, t.basis.z.z, t.origin.x, t.origin.y, t.origin.z]

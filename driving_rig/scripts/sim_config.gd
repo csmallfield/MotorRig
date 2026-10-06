@@ -77,11 +77,108 @@ func warnings() -> PackedStringArray:
 
 
 func start_sim() -> void:
-	get_tree().change_scene_to_file(SIM_SCENE)
+	var what := car_profile.display_name if car_profile else "the car"
+	_switch_to(SIM_SCENE, "Loading %s..." % what, car_profile.chassis_path if car_profile else "")
 
 
 func go_menu() -> void:
-	get_tree().change_scene_to_file(MENU_SCENE)
+	_switch_to(MENU_SCENE, "Loading...")
+
+
+# === loading screen ===
+## The full car models take a moment to load. Loading happens on a thread behind a loading
+## screen (so the window keeps drawing instead of freezing), then the scene switches; the screen
+## stays up until the new scene's first frame - which is when the car and world get built.
+
+var _loading: PackedStringArray = []
+var _loaded: Array[Resource] = []      ## held until the switch, so nothing unloads in between
+var _overlay: CanvasLayer
+var _overlay_label: Label
+var _overlay_bar: ProgressBar
+
+
+func _switch_to(scene: String, text: String, extra: String = "") -> void:
+	if not _loading.is_empty():
+		return                                       # already on its way
+	_show_overlay(text)
+	_loading = [scene]
+	if extra != "" and ResourceLoader.exists(extra):
+		_loading.append(extra)                       # the car's model: the slow part
+	for p in _loading:
+		if ResourceLoader.load_threaded_request(p, "", true) != OK:
+			_loading.clear()
+			get_tree().change_scene_to_file(scene)   # couldn't thread it: plain load
+			_hide_overlay()
+			return
+
+
+func _process(_delta: float) -> void:
+	if _loading.is_empty():
+		return
+	var sum := 0.0
+	var ready := true
+	for p in _loading:
+		var prog := []
+		var st := ResourceLoader.load_threaded_get_status(p, prog)
+		if st == ResourceLoader.THREAD_LOAD_FAILED or st == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			push_error("Couldn't load %s" % p)
+			var scene: String = _loading[0]
+			_loading.clear()
+			get_tree().change_scene_to_file(scene)
+			_hide_overlay()
+			return
+		sum += 1.0 if st == ResourceLoader.THREAD_LOAD_LOADED else (float(prog[0]) if prog.size() > 0 else 0.0)
+		ready = ready and st == ResourceLoader.THREAD_LOAD_LOADED
+	_overlay_bar.value = 100.0 * sum / _loading.size()
+	if ready:
+		_finish_switch()
+
+
+func _finish_switch() -> void:
+	_loaded.clear()
+	for p in _loading:
+		_loaded.append(ResourceLoader.load_threaded_get(p))
+	_loading.clear()
+	_overlay_label.text = _overlay_label.text.trim_suffix("...") + " - starting..."
+	await get_tree().process_frame                   # let the full bar draw
+	get_tree().change_scene_to_packed(_loaded[0] as PackedScene)
+	await get_tree().scene_changed
+	await get_tree().process_frame                   # the new scene has built and drawn once
+	_loaded.clear()
+	_hide_overlay()
+
+
+func _show_overlay(text: String) -> void:
+	if _overlay == null:
+		_overlay = CanvasLayer.new()
+		_overlay.layer = 128
+		var bg := ColorRect.new()
+		bg.color = Color(0.06, 0.07, 0.09)
+		bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_overlay.add_child(bg)
+		var box := VBoxContainer.new()
+		box.set_anchors_preset(Control.PRESET_CENTER)
+		box.custom_minimum_size = Vector2(420, 0)
+		box.position = Vector2(-210, -30)
+		box.add_theme_constant_override("separation", 12)
+		bg.add_child(box)
+		_overlay_label = Label.new()
+		_overlay_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_overlay_label.add_theme_font_size_override("font_size", 22)
+		box.add_child(_overlay_label)
+		_overlay_bar = ProgressBar.new()
+		_overlay_bar.custom_minimum_size = Vector2(420, 10)
+		_overlay_bar.show_percentage = false
+		box.add_child(_overlay_bar)
+		add_child(_overlay)
+	_overlay_label.text = text
+	_overlay_bar.value = 0.0
+	_overlay.visible = true
+
+
+func _hide_overlay() -> void:
+	if _overlay:
+		_overlay.visible = false
 
 
 func open_user_profiles() -> void:

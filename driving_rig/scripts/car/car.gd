@@ -389,7 +389,8 @@ func _build_chassis_model() -> Node3D:
 
 
 ## A model built on the rig's own hierarchy - a `chassis` node with the four wheel chains under it
-## (wheel_XX_steer → _susp → _spin → _geo) and optionally a `steering_wheel`, as made from a bind
+## (wheel_XX_steer → _susp → _spin → _geo) and optionally a `steering_wheel` (or a relocated
+## `steering_visual_pivot`, see below), as made from a bind
 ## car - brings its own wheels. This puts the model's `chassis` on the car origin (the file has it
 ## at ride height) and lifts each wheel_XX_geo out, keeping its pose relative to its spin node, for
 ## the car's own chain to drive. Anything else hung on a chain node (the quad's brake calipers ride
@@ -436,8 +437,13 @@ static func adopt_rig_parts(inst: Node) -> Dictionary:
 		if chain:
 			chain.get_parent().remove_child(chain)
 			chain.free()
-	return {"wheels": wheels, "wheel_parts": parts,
-			"steering_wheel": chassis.find_child("steering_wheel", true, false) as Node3D}
+	# A model may move its visible wheel off the rig's column to where it really sits (the limo):
+	# `steering_visual_pivot`, oriented like `steering_wheel` with the same identity rest rotation,
+	# so turning it instead is the same motion. The rig's own node is then left empty.
+	var sw := chassis.find_child("steering_visual_pivot", true, false) as Node3D
+	if sw == null:
+		sw = chassis.find_child("steering_wheel", true, false) as Node3D
+	return {"wheels": wheels, "wheel_parts": parts, "steering_wheel": sw}
 
 
 ## Out of the model's scene, keeping its local transform, to be re-parented onto the car.

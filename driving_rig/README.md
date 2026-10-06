@@ -106,14 +106,14 @@ The car has a steering wheel (torus, spoke, marker at 12 o'clock) that turns by 
 wheels' steer angle × `steering_ratio` (default 15:1: full lock ≈ 490°), counter-clockwise from
 the seat when turning left. Position, radius and column tilt are in the car profile.
 
-**Every vehicle ships with a low-poly proxy body** in `models/vehicles/` (132–192 triangles),
-already assigned to its profile — see `models/README.md`. They are built from each profile's own
-numbers: length and height stay inside the collision box, width goes out to the track with the
-sills inside the tyres so the wheels sit in open arches, and the body colour comes from the
-profile. Physics is unchanged — the collider is still the `body_size` box.
+**Every vehicle has a full textured model** in `models/vehicles/<profile>/` (0.3–1.8M triangles,
+with cabins and see-through glass), with its own wheels and steering wheel — see
+`models/README.md`. Physics is unchanged — the collider is still the `body_size` box, and some
+models stand taller than it (listed there). The low-poly proxy bodies (132–192 triangles) are
+still in `models/vehicles/*.glb` as simple stand-ins, no longer assigned.
 
 **Custom chassis:** drop a scene (a `.tscn`, or an imported `.glb`/`.gltf`/`.blend`) into the
-car profile's `chassis_scene` and fit it with `chassis_transform`. It replaces the proxy box;
+car profile's `chassis_path` (a file picker in the Inspector) and fit it with `chassis_transform`. It replaces the proxy box;
 the collider is still the `body_size` box, so size that to match (handling is unchanged).
 `hide_chassis_in_driver_cam` (default on) hides it from the driver cam — turn it off for a model
 with an interior and see-through glass. The replay ghost rebuilds your model from the take.
@@ -127,8 +127,8 @@ cylinder, and turns the model's `steering_wheel` instead of building one. Anythi
 a wheel chain moves over with it at the same level - parts on `wheel_XX_susp` (the quad's brake
 calipers) steer and travel but don't spin. Everything else in the file rides along with the body. In the `.glb`'s import settings turn **Use Node Type
 Suffixes off**, or Godot reads the `_wheel` in `steering_wheel` as "make a VehicleWheel3D". The
-city bus, garbage truck, quad, dune buggy and hatchback (`models/vehicles/city_bus/`,
-`garbage_truck/`, `quad_atv/`, `dune_buggy/`, `hatch_fwd/`) are built this way. `wheel_XX_geo` may
+Every vehicle's model in `models/vehicles/<profile>/` is built this way. A model that moves its visible
+steering wheel off the rig's column puts it under `steering_visual_pivot`, which is turned instead. `wheel_XX_geo` may
 be a single mesh or a group of them.
 Maya keeps the proxy cube (it can't read Godot scenes): parent your own model under `chassis`.
 
@@ -217,6 +217,34 @@ straight in the channel box — any time after import. Spin re-solve and the rad
 in world space, so they stay correct at any scale. Rigs imported before 0.7 are adopted into the
 group the first time it's created.
 
+**The game's car model, one click** (*Driving Rig ▸ Car Model ▸ Load Car Model for Take*):
+select the take rig and the car it was driven with is loaded and attached — the full textured
+model from `models/vehicles/<profile>/`, with **Arnold shaders**. It comes from the car profile
+the take recorded (its *current* model, so an old take gets the new car).
+
+- **Built once, cached:** the first load converts the `.glb` into `maya/cars/<profile>/car.mb`
+  (+ `build.json`), in a separate mayapy so your open scene is untouched — 15–30 s per car. It
+  is rebuilt automatically when the `.glb` changes. Not in git: it's big and derived (delete the
+  folder to force a rebuild). The shaders read the PNGs beside the `.glb` in
+  `models/vehicles/<car>/`, so Arnold's `.tx` files appear there (git-ignored).
+- **Referenced, not imported:** shot files stay small, and a new version of a car reaches every
+  shot. Each take gets its own reference (`<ns>_car:`).
+- **Attached like your own model** (below): groups `chassis`, `wheel_XX` (spins), `wheel_XX_susp`
+  (calipers: steer and travel, don't spin), `steering_wheel`. The models are authored on the
+  bind car's pose, so there's nothing to line up. The **limo**'s visible steering wheel sits in
+  its real cabin, 1.9 m behind the rig's column: it becomes `steering_visual`, riding on the
+  chassis, with `steering_visual_pivot`'s `rotateZ` wired from the rig's `steering_wheel` — it
+  turns in place rather than swinging round the rig's column.
+- **All ten vehicles** are verified on recorded takes in Maya 2027 / Arnold: zero drift between
+  every part and its rig node, tyre centres on the rig's wheels, triangle counts equal to each
+  asset's README (0.3–1.8M per car; first build 15–30 s).
+- **Shaders:** `aiStandardSurface` per glTF material — base colour, roughness / metalness from
+  the packed map (Raw), normal map through `aiNormalMap`, clearcoat → coat, emission. The game's
+  near-transparent glass becomes thin-walled **transmission**, lightly tinted; textured alpha
+  (decals) becomes opacity. `standardSurface` if Arnold isn't loaded.
+- **Unload Car Model** detaches it and removes the reference; *Delete Rig…* does the same.
+- Needs numpy, which Maya 2024+ ships with (the rest of the Maya side doesn't).
+
 **Your own car model** (*Driving Rig ▸ Car Model*):
 
 1. **Create Bind Car** with the take rig selected: a static, unanimated copy in `<ns>_bind:` —
@@ -224,7 +252,9 @@ group the first time it's created.
    rate), wheels straight, steering centred. It displays in reference mode (visible, not
    selectable) so you can snap to it.
 2. Line your model up with it, organised in groups named `chassis`, `wheel_FL`, `wheel_FR`,
-   `wheel_RL`, `wheel_RR` and optionally `steering_wheel`. Case, namespaces and a `_grp`/`_geo`
+   `wheel_RL`, `wheel_RR` and optionally `steering_wheel`, plus per wheel `wheel_FL_susp` for
+   parts that steer and travel but don't spin (calipers) and `wheel_FL_steer` for parts that
+   only steer. Case, namespaces and a `_grp`/`_geo`
    suffix are ignored; nesting is fine (a steering wheel inside the chassis group, meshes
    named `chassis_geo`…). **Create Model Groups** makes the empty named groups, already placed.
    Scale and move the model's top group freely.
@@ -238,7 +268,8 @@ group the first time it's created.
 
 **Detach Model** puts every group back exactly where you placed it (re-fit, re-attach).
 Deleting a rig detaches its model first — it never deletes your car. One model per rig at a
-time: duplicate the model for another take.
+time: duplicate the model for another take. A steering wheel on a take recorded before rig 0.7
+(no steering node) rides on the chassis.
 
 **Skid curves** — *Driving Rig ▸ Create Skid Curves* turns the stretches where the tyres were
 sliding into NURBS curves under `<ns>:skids`, in the rig's space. Every take already records the
@@ -278,8 +309,12 @@ drv_hero:root                  move/rotate the whole take from here
 
     "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" -m unittest discover -s maya/tests -v
 
-82 tests (39 inside Maya), including the car-model workflow at world scale 1.0 and 0.1 with a
-moved/scaled/rotated model group, nested layouts, detach and delete-keeps-model. Also: the take reader (bit-for-bit vs Godot), the scene reader (Godot-written fixture:
+102 tests, including the car-model workflow at world scale 1.0 and 0.1 with a
+moved/scaled/rotated model group, nested layouts, detach and delete-keeps-model, and the one-click
+game model (`test_carmodel.py`: a rig-shaped `.glb` written from the fixture take — groups, cm,
+instancing, every material path, a cache that goes stale, the build in its own mayapy, loaded
+parts following the take with the tyres on the rig's wheels, unload / delete, and the real bus at
+its 329,836 triangles). Also: the take reader (bit-for-bit vs Godot), the scene reader (Godot-written fixture:
 winding, baked transforms, take contacts on the ground), the maths core (Euler conventions
 through gimbal, spin solve, radius check), hygiene (Windows-safe text), and 23 that run inside
 headless Maya — convention proof under large rotations, wheel positions, metres/Z-up scenes,
@@ -506,7 +541,7 @@ twitchy fails loudly. Current results (Godot 4.7-stable, Jolt, 240 Hz):
 | camera_record | active-camera track exact; every camera's recorded path matches live (1 mm, 2e-5 rad) |
 | steering_wheel | full left lock: 32.6 deg road wheels → 490 deg wheel, marker to the driver's left |
 | custom_chassis | model replaces box, collider unchanged, settles, ghost rebuilds model |
-| rig_model | each full model (city bus, garbage truck, quad, dune buggy, hatchback): its `chassis` lands on the car origin, it covers the collider (fittings may stick out up to 30 %; the hatchback 40 %, see `RIG_OVERSIZE`), the car drives its own wheel meshes and they touch the road, its steering wheel is used, parts on its wheel chains (calipers) come across at the same level, the ghost does the same |
+| rig_model | each full model (all ten vehicles, `RIG_MODELS`): its `chassis` lands on the car origin, it covers the collider (spans 95 % of it; fittings may stick out up to 30 %, the exceptions are listed in `RIG_OVERSIZE`), the car drives its own wheel meshes and they touch the road, its steering wheel is used and has meshes on it, parts on its wheel chains (calipers) come across at the same level, the ghost does the same |
 | audio_files | per-vehicle folder wins, fallback works, rpm layers sorted, a missing sound is silent |
 | audio_engine | rpm stays inside idle…redline and shifts through the gears accelerating |
 | audio_impact | driving hard reports no impacts; hitting a wall reports one, scaled by how hard |

@@ -101,6 +101,52 @@ def _bind_car(*_):
     _run(go)
 
 
+def _take_rig():
+    from . import importer
+    root = importer.find_rig_root()
+    if root is None and len(importer.list_rigs()) == 1:
+        root = importer.list_rigs()[0]
+    if root is None:
+        raise RuntimeError("Select a take rig (any node of it) first.")
+    return root
+
+
+def _load_car(*_):
+    from . import carmodel
+
+    def go():
+        root = _take_rig()
+        state = {"open": False}
+
+        def progress(seconds):
+            if not state["open"]:
+                cmds.progressWindow(title="Driving Rig", isInterruptable=True, progress=0,
+                                    status="Building the car model (first time only)...")
+                state["open"] = True
+            cmds.progressWindow(edit=True, progress=int(seconds) % 100,
+                                status="Building the car model (first time only)... %ds" % seconds)
+            return not cmds.progressWindow(query=True, isCancelled=True)
+        try:
+            top = carmodel.load_for_take(root, progress=progress)
+        finally:
+            if state["open"]:
+                cmds.progressWindow(endProgress=True)
+        cmds.confirmDialog(title="Driving Rig", button=["OK"], message=(
+            "Car model loaded and attached to %s:\n  %s\n\nIt's a reference to the cached model, "
+            "so it stays light and picks up new versions of the car." % (
+                root.split("|")[-1], top.split("|")[-1])))
+    _run(go)
+
+
+def _unload_car(*_):
+    from . import carmodel
+
+    def go():
+        if not carmodel.unload_for_take(_take_rig()):
+            cmds.warning("This take has no car model loaded.")
+    _run(go)
+
+
 def _model_groups(*_):
     from . import bind
     _run(bind.create_model_groups)
@@ -206,6 +252,12 @@ def create_menu():
     cmds.menuItem(label="World Scale...", command=_world_scale,
                   annotation="Scale every Driving Rig import at once (DrivingRig_world.worldScale)")
     cmds.menuItem(label="Car Model", subMenu=True, tearOff=True)
+    cmds.menuItem(label="Load Car Model for Take (selected rig)", command=_load_car,
+                  annotation="The game's own model of the car this take was driven with, Arnold "
+                             "shaders, attached in one go (built and cached the first time)")
+    cmds.menuItem(label="Unload Car Model (selected rig)", command=_unload_car)
+    cmds.menuItem(divider=True)
+    cmds.menuItem(label="Your own model:", enable=False)
     cmds.menuItem(label="1  Create Bind Car (selected rig)", command=_bind_car,
                   annotation="Static copy of the rig at rest, to line your model up against")
     cmds.menuItem(label="2  Create Model Groups (optional)", command=_model_groups,

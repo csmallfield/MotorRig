@@ -6,6 +6,8 @@
                                     height, wheels straight, steering centred.
     3. Place your model over it, organised in named groups (create_model_groups() makes them):
            chassis   wheel_FL   wheel_FR   wheel_RL   wheel_RR   [steering_wheel]
+           optional, per wheel: wheel_FL_susp (steers + travels, no spin: calipers)
+                                wheel_FL_steer (steers only)
        Case, namespaces and a _grp / _geo suffix are ignored ("carA:Wheel_FL_GRP" counts).
     4. attach_model(model, rig)   - every group follows its part of the animated rig.
        detach_model(rig)          - puts everything back exactly as it was.
@@ -29,10 +31,20 @@ from .mayautil import (add_attr, find_rig_root, namespace_of, put_in_world, scen
 from .take_io import WHEELS
 
 BIND_ATTR = "drvBind"
-# model group name -> node of the rig it follows
+# model group name -> node of the rig it follows. wheel_XX spins; wheel_XX_susp (brake calipers,
+# a limo's dampers) steers and travels but doesn't spin; wheel_XX_steer only steers.
 PARTS = [("chassis", "chassis")] + [("wheel_%s" % w, "wheel_%s_spin" % w) for w in WHEELS] + \
-    [("steering_wheel", "steering_wheel")]
+    [("wheel_%s_susp" % w, "wheel_%s_susp" % w) for w in WHEELS] + \
+    [("wheel_%s_steer" % w, "wheel_%s_steer" % w) for w in WHEELS] + \
+    [("steering_wheel", "steering_wheel"), ("steering_visual", "chassis")]
 REQUIRED = ["chassis"] + ["wheel_%s" % w for w in WHEELS]
+# A steering wheel the model moved off the rig's column (the limo's sits in the real cabin):
+# the group rides on the chassis, and the named node inside it copies the rig wheel's turn.
+# Parenting it to the rig's wheel instead would swing it round the wrong column.
+DRIVEN = {"steering_visual": ("steering_visual_pivot", "steering_wheel", "rotateZ")}
+# An optional part whose node the take's rig doesn't have (no steering wheel before rig 0.7)
+# rides on the chassis instead of being left behind.
+FALLBACK = {"steering_wheel": "chassis"}
 _SUFFIX = re.compile(r"(_?(grp|group|geo))$")
 
 
@@ -108,8 +120,9 @@ def create_model_groups(root=None, name="car_model"):
         top = cmds.createNode("transform", name=name, skipSelect=True)
         for part, node in PARTS:
             src = "%s:%s" % (bns, node)
-            if not cmds.objExists(src):
-                continue                                   # no steering wheel on older takes
+            # the optional extras, and a steering wheel an older take doesn't have
+            if part.endswith(("_susp", "_steer")) or part in DRIVEN or not cmds.objExists(src):
+                continue
             m = cmds.getAttr(src + ".worldMatrix[0]")
             g = cmds.createNode("transform", name=part, parent=top, skipSelect=True)
             cmds.setAttr(g + ".translate", m[12], m[13], m[14])
@@ -152,7 +165,8 @@ def find_parts(model):
             msg.append("More than one group named: %s" % ", ".join(sorted(set(dup))))
         msg.append("Found: %s" % (", ".join(sorted(found)) or "nothing"))
         msg.append("Expected groups named chassis, wheel_FL, wheel_FR, wheel_RL, wheel_RR and "
-                   "optionally steering_wheel (case, namespace and _grp/_geo suffix ignored).")
+                   "optionally steering_wheel and wheel_XX_susp / wheel_XX_steer (case, namespace "
+                   "and _grp/_geo suffix ignored).")
         raise BindError("\n".join(msg))
     return found
 
@@ -192,7 +206,10 @@ def attach_model(model, root=None, hide_proxy=True, hide_bind=True, under_world=
         if not (cmds.objExists(target) and cmds.objExists(bind_node)):
             if part in REQUIRED:
                 raise BindError("Rig has no %s" % node)
-            continue                                        # steering wheel on an older take
+            if part not in FALLBACK:
+                continue
+            node = FALLBACK[part]                           # steering wheel on an older take
+            target, bind_node = "%s:%s" % (ns, node), "%s:%s" % (bns, node)
         n = parts[part]
         # where this part sits relative to the bind car: world_part = offset * world_bind
         offset = mu.m4_mul(_world_matrix_now(n), mu.m4_inverse_affine(_world_matrix_now(bind_node)))
@@ -216,12 +233,40 @@ def attach_model(model, root=None, hide_proxy=True, hide_bind=True, under_world=
         con = cmds.parentConstraint(item["target"], n, maintainOffset=True)[0]
         con = cmds.rename(con, "%s:%s_parentConstraint" % (ns, item["part"]))
         add_attr(n, "drvConstraint", cmds.ls(con, uuid=True)[0], "string")
+        if item["part"] in DRIVEN:
+            _drive(n, ns, *DRIVEN[item["part"]])
         done[item["part"]] = cmds.ls(n, long=True)[0]
     if hide_proxy and cmds.attributeQuery("proxyVisibility", node=root, exists=True):
         cmds.setAttr(root + ".proxyVisibility", False)
     if hide_bind:
         cmds.setAttr(bind + ".visibility", False)
     return done
+
+
+def _drive(part_node, ns, child, rig_node, attr):
+    """Connect the rig's node.attr straight into `child` under part_node (see DRIVEN)."""
+    kids = [k for k in (cmds.listRelatives(part_node, allDescendents=True, type="transform", fullPath=True) or [])
+            if _clean(k) == child]
+    src = "%s:%s.%s" % (ns, rig_node, attr)
+    if not kids or not cmds.objExists(src.rsplit(".", 1)[0]):
+        return                                              # no steering on an older take
+    k = kids[0]
+    add_attr(k, "drvDrivenRest", cmds.getAttr("%s.%s" % (k, attr)))
+    add_attr(k, "drvDrivenBy", src, "string")
+    cmds.connectAttr(src, "%s.%s" % (k, attr), force=True)
+
+
+def _undrive(part_node):
+    for k in cmds.listRelatives(part_node, allDescendents=True, type="transform", fullPath=True) or []:
+        if not cmds.attributeQuery("drvDrivenBy", node=k, exists=True):
+            continue
+        src = cmds.getAttr(k + ".drvDrivenBy")
+        attr = src.rsplit(".", 1)[1]
+        if cmds.isConnected(src, "%s.%s" % (k, attr)):
+            cmds.disconnectAttr(src, "%s.%s" % (k, attr))
+        cmds.setAttr("%s.%s" % (k, attr), cmds.getAttr(k + ".drvDrivenRest"))
+        for a in ("drvDrivenBy", "drvDrivenRest"):
+            cmds.deleteAttr(k + "." + a)
 
 
 def attached_parts(root):
@@ -245,6 +290,7 @@ def detach_model(root=None):
         con = cmds.ls(cmds.getAttr(n + ".drvConstraint"), long=True) or []
         if con:
             cmds.delete(con)
+        _undrive(n)
         cmds.xform(n, matrix=json.loads(cmds.getAttr(n + ".drvOrigLocal")))
         for a in ("drvOrigLocal", "drvAttachedTo", "drvConstraint"):
             if cmds.attributeQuery(a, node=n, exists=True):

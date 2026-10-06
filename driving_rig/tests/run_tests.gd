@@ -31,11 +31,19 @@ const ALL: Array[String] = ["settle", "accel_brake", "corner_60", "corner_100", 
 ## Full models built on the rig hierarchy, which bring their own wheels (rig_model checks each).
 const RIG_MODELS: Array[String] = ["res://profiles/cars/city_bus.tres", "res://profiles/cars/garbage_truck.tres",
 	"res://profiles/cars/quad_atv.tres", "res://profiles/cars/dune_buggy.tres",
-	"res://profiles/cars/hatch_fwd.tres"]
+	"res://profiles/cars/hatch_fwd.tres", "res://profiles/cars/sedan_awd.tres",
+	"res://profiles/cars/limo.tres", "res://profiles/cars/monster_truck.tres", "res://profiles/cars/suv_awd.tres",
+	"res://profiles/cars/sports_rwd.tres"]
 ## How much bigger than its collider (height or length) a full model may draw. Fittings get 30 %.
-## The hatchback is a known exception, accepted for now: its roof stands 33 cm above the 0.95 m box
-## (1.35x), so in a rollover the roof sinks into the ground before the box lands.
-const RIG_OVERSIZE: Dictionary = {"res://profiles/cars/hatch_fwd.tres": 1.4}
+## Known exceptions, accepted for now:
+##   hatchback   roof 33 cm above the 0.95 m box (1.35x) - in a rollover the roof sinks into the
+##   sports car  roof 29 cm above the 0.85 m box (1.35x)   ground before the box lands
+##   monster     body fits; frame, axles and powertrain hang 41 cm below the body box (1.31x)
+const RIG_OVERSIZE: Dictionary = {"res://profiles/cars/hatch_fwd.tres": 1.4,
+	"res://profiles/cars/sports_rwd.tres": 1.4, "res://profiles/cars/monster_truck.tres": 1.35}
+## How much of the collider's height and length the model must span. 95 %: the limo's body sits
+## 5 cm above the floor of its box (96 %); a model that is shifted or scaled wrong misses by far more.
+const RIG_COVERAGE: float = 0.95
 const FLAT: Array[String] = ["accel_brake", "corner_60", "corner_100", "corner_140", "flick", "catch",
 	"reverse_gear"]
 
@@ -1024,11 +1032,12 @@ func _t_steering_wheel() -> bool:
 	if t == 3 * 240:
 		var mean_steer := (car.wheel_steer[0] + car.wheel_steer[1]) * 0.5
 		var want := mean_steer * car.steering_ratio
-		var wheel := car.get_node("SteeringColumn/SteeringWheel") as Node3D
-		var marker := wheel.get_node("TopMarker") as Node3D
-		var column := car.get_node("SteeringColumn") as Node3D
+		# the car's own wheel or the one its model brought: either way its 12 o'clock (local +Y)
+		# must swing to the driver's left
+		var wheel: Node3D = car._steering_wheel
 		var inv := car.global_transform.affine_inverse()
-		var dx := (inv * marker.global_position).x - (inv * column.global_position).x
+		var top := wheel.global_transform * Vector3(0.0, car.steering_wheel_radius, 0.0)
+		var dx := (inv * top).x - (inv * wheel.global_position).x
 		var ok := mean_steer > 0.1 and absf(car.steering_wheel_angle - want) < 1e-6 \
 				and absf(wheel.rotation.z - want) < 1e-4 and dx < -0.1
 		_result(ok, "left lock: road wheels %.1f deg -> steering wheel %.0f deg (ratio %.0f:1) · top marker %.2f m to the driver's left" % [
@@ -1047,6 +1056,7 @@ func _t_custom_chassis() -> bool:
 		var p: CarProfile = (load(REF_CAR) as CarProfile).duplicate()
 		p.chassis_scene = load("res://tests/fixtures/chassis_test.tscn")
 		p.chassis_transform = Transform3D(Basis.IDENTITY, Vector3(0, 0.05, 0))
+		p.hide_chassis_in_driver_cam = true   # the reference car's own model shows in the cabin
 		main.get_node("Car").profile = p
 		main.get_node("Terrain").profile = load(REF_WORLD)
 		main.get_node("Recorder").takes_dir = TAKES_DIR
@@ -1118,11 +1128,14 @@ func _t_rig_model() -> bool:
 			model_wheels += 1
 			var wb := _mesh_bounds(geo, Transform3D.IDENTITY)
 			ground_err = maxf(ground_err, absf(wb.position.y - car._ground_height_at(wb.get_center())))
-		var own_sw := car.get_node_or_null("SteeringColumn") == null and model.is_ancestor_of(car._steering_wheel)
+		# the model's own wheel - and one with something visible on it, not an emptied rig node
+		var own_sw := car.get_node_or_null("SteeringColumn") == null and model.is_ancestor_of(car._steering_wheel) \
+				and not car._steering_wheel.find_children("*", "MeshInstance3D", true, false).is_empty()
 		# parts the model hangs on its wheel chains (the quad's brake calipers, on _susp) must come
 		# across to the car's chain at the same level - and not be left behind in the body
 		var chain_parts := _chain_parts(car)
-		var left_behind := model.find_children("wheel_*", "", true, false).size()
+		var left_behind := model.find_children("wheel_*", "", true, false) \
+				.filter(func(n: Node) -> bool: return _is_chain_node(n.name)).size()
 		var ghost := GhostCar.new()
 		main.add_child(ghost)
 		var meta := car.build_take_meta()
@@ -1130,7 +1143,7 @@ func _t_rig_model() -> bool:
 		ghost.build(meta, null, null, null)
 		var ghost_ok := ghost.wheel_geos.all(func(g: Node3D) -> bool: return not _is_cylinder(g)) \
 				and ghost.get_node_or_null("SteeringColumn") == null and _chain_parts(ghost) == chain_parts
-		var ok := origin_err < 0.001 and coverage > 0.97 and oversize < float(RIG_OVERSIZE.get(cur.substr(4), 1.3)) and model_wheels == 4 \
+		var ok := origin_err < 0.001 and coverage > RIG_COVERAGE and oversize < float(RIG_OVERSIZE.get(cur.substr(4), 1.3)) and model_wheels == 4 \
 				and ground_err < 0.03 and own_sw and left_behind == 0 and ghost_ok
 		_result(ok, "%s: chassis on car origin (%.4f m) · body %s vs collider %s, covers %d %%, at most %.2f× its size · %d model wheels, lowest point %.3f m off the road · own steering wheel %s · wheel-chain parts %s, %d left in the body · ghost %s" % [
 			car.active_profile.display_name, origin_err, bb.size, car.body_size, roundi(coverage * 100.0), oversize,
@@ -1158,6 +1171,16 @@ func _is_cylinder(geo: Node3D) -> bool:
 	return geo is MeshInstance3D and (geo as MeshInstance3D).mesh is CylinderMesh
 
 
+## wheel_XX_steer/_susp/_spin/_geo exactly - not a part that merely starts "wheel_FL_" (the sports
+## car names its brake parts wheel_FL__Brake__...).
+func _is_chain_node(node_name: String) -> bool:
+	for wn in DrivingCar.WHEEL_NAMES:
+		for level in ["steer", "susp", "spin", "geo"]:
+			if node_name == "wheel_%s_%s" % [wn, level]:
+				return true
+	return false
+
+
 ## Extra parts on each wheel chain, beyond the chain itself and the wheel: "level:name" per part.
 func _chain_parts(owner_node: Node) -> PackedStringArray:
 	var out := PackedStringArray()
@@ -1166,7 +1189,7 @@ func _chain_parts(owner_node: Node) -> PackedStringArray:
 		for level in DrivingCar.CHAIN_LEVELS:
 			node = node.get_node("wheel_%s_%s" % [wn, level])
 			for c in node.get_children():
-				if not String(c.name).begins_with("wheel_%s_" % wn):
+				if not _is_chain_node(c.name):
 					out.append("%s:%s" % [level, c.name])
 	return out
 
@@ -1807,21 +1830,17 @@ func _t_vehicle_models() -> bool:
 	var checked := 0
 	var tris := 0
 	var bodies := 0
-	var da := DirAccess.open("res://profiles/cars")
-	for f in da.get_files():
-		if not f.ends_with(".tres"):
-			continue
-		var prof: CarProfile = load("res://profiles/cars/" + f)
-		if prof.chassis_scene == null:
+	for f in DirAccess.open("res://profiles/cars").get_files():
+		if f.ends_with(".tres") and (load("res://profiles/cars/" + f) as CarProfile).chassis_scene == null:
 			report.append("%s: no model" % f.get_basename())
 			bad += 1
-			continue
-		# only the generated proxies (tools/build_vehicles.py) are all closed solids; an authored
-		# model in its own folder has open panes of glass and decals
-		if prof.chassis_scene.resource_path.get_base_dir() != "res://models/vehicles":
+	# The generated proxies (tools/build_vehicles.py), assigned or not - only they are all closed
+	# solids; an authored model in its own folder has open panes of glass and decals.
+	for f in DirAccess.open("res://models/vehicles").get_files():
+		if not f.ends_with(".glb"):
 			continue
 		bodies += 1
-		var inst := prof.chassis_scene.instantiate()
+		var inst := (load("res://models/vehicles/" + f) as PackedScene).instantiate()
 		for mi in inst.find_children("*", "MeshInstance3D", true, false):
 			var mesh: Mesh = (mi as MeshInstance3D).mesh
 			for sfc in mesh.get_surface_count():

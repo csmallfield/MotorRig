@@ -5,3 +5,9 @@
 # Python bytecode (Maya writes these into maya/ every time it imports the package)
 __pycache__/
 *.py[cod]
+
+# Maya car models built from the .glb files (Car Model > Load Car Model for Take) - big, rebuilt on demand
+/maya/cars/
+
+# Arnold converts textures to .tx beside them when it renders (the car models use the PNGs in models/)
+/models/**/*.tx
